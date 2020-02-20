@@ -144,6 +144,11 @@ pub struct SpiralChunks {
 }
 
 impl SpiralChunks {
+    /// Drops all remaining chunks in the iterator, makes the .next() method return None
+    pub fn kill(&mut self) {
+        self.remaining = 0;
+    }
+
     /// Constructs an iterator that returns no blocks.
     fn empty() -> SpiralChunks {
         SpiralChunks {
@@ -160,12 +165,14 @@ impl SpiralChunks {
         }
     }
 
+    /// Moves to next segment of the spiral (turns 90 degrees and calculates new segment legnth).
     fn next_segment(&mut self) {
         self.direction = vec2(self.direction.y, -self.direction.x);
         self.segment += 1;
         self.segment_remaining = (self.segment / 2) as isize;
     }
 
+    /// Returns a new screen block that corresponds to the current iterator position.
     fn current_block(&self) -> ScreenBlock {
         let min = self.block.min + self.cursor.to_vector().cast::<usize>() * self.chunk_scale;
         let max = min + vec2(1, 1) * self.chunk_scale;
@@ -222,6 +229,12 @@ impl Iterator for SpiralChunks {
         self.remaining -= 1;
 
         Some(ret)
+    }
+}
+
+impl ExactSizeIterator for SpiralChunks {
+    fn len(&self) -> usize {
+        self.remaining
     }
 }
 
@@ -336,6 +349,18 @@ mod test {
             }
         }
 
+        /// Tests that pixel iterator is a well behaved exact length iterator
+        #[test]
+        fn spiral_iterator_exact_length(x in 0..100usize,
+                                        y in 0..100usize,
+                                        w in 0..100usize,
+                                        h in 0..100usize,
+                                        block_size in 1..10usize) {
+            let block = rect(x, y, w, h).to_box2d();
+            let it = block.spiral_chunks(block_size);
+            check_exact_length(it, it.len()); // Using first reported length as a baseline, because it's easy
+        }
+
         #[test]
         #[should_panic]
         fn zero_sized_chunks(x in 0..100usize,
@@ -346,8 +371,15 @@ mod test {
         }
     }
 
-    /*#[test]
-    fn single_pixel() {
-        assert_eq!(ScreenBlock::from(ScreenSize::new(1, 1)).pixel_coordinates().collect::<Vec<_>>(), [(0, 0)]);
-    }*/
+    /// Tests that the iterator can be killed.
+    #[test]
+    fn kill() {
+        let mut it = rect(0, 0, 10, 10).to_box2d().spiral_chunks(3);
+        assert!(it.len() > 0);
+        assert!(it.nth(5).is_some()); // We move by some distance in the iterator and check that there were enough elements
+        assert!(it.len() > 0);
+        it.kill();
+        assert!(it.len() == 0);
+        assert!(it.next().is_none());
+    }
 }
