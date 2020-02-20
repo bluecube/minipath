@@ -1,4 +1,4 @@
-mod image_block;
+mod screen_block;
 mod image_window;
 
 use anyhow;
