@@ -1,9 +1,12 @@
+use crate::screen_block;
+
 use sdl2;
 use anyhow;
 
 pub struct ImageWindow {
     context: sdl2::Sdl,
-    canvas: sdl2::render::Canvas<sdl2::video::Window>
+    event: sdl2::EventSubsystem,
+    canvas: sdl2::render::Canvas<sdl2::video::Window>,
 }
 
 impl ImageWindow {
@@ -11,7 +14,11 @@ impl ImageWindow {
     /// There can be only one!
     pub fn new(title: &str, width: u32, height: u32) -> anyhow::Result<ImageWindow> {
         let context = sdl2::init().map_err(anyhow_from_string)?;
+        let event = context.event().map_err(anyhow_from_string)?;
         let video = context.video().map_err(anyhow_from_string)?;
+
+        event.register_custom_event::<screen_block::ScreenBlock>().map_err(anyhow_from_string)?;
+
         let mut canvas = video.window(title, width, height)
             .position_centered()
             .resizable()
@@ -22,11 +29,9 @@ impl ImageWindow {
 
         let mut window = ImageWindow {
             context: context,
+            event: event,
             canvas: canvas,
         };
-
-        window.draw_checkerboard()?;
-
 
         Ok(window)
     }
@@ -47,10 +52,20 @@ impl ImageWindow {
 
                 Event::Window {win_event: WindowEvent::Exposed, ..} => self.redraw()?,
 
-                _ => {},
+                _ => if let Some(rendered) = event.as_user_event_type::<screen_block::ScreenBlock>() {
+                    println!("Rendered {:?}", rendered);
+                },
             }
         }
         Ok(())
+    }
+
+    pub fn make_writer(&self) -> impl Fn(screen_block::ScreenBlock) -> Option<()> {
+        let event_sender = self.event.event_sender();
+        move |block: screen_block::ScreenBlock| {
+            event_sender.push_custom_event(block);
+            Some(())
+        }
     }
 
     fn redraw(&mut self) -> anyhow::Result<()> {
