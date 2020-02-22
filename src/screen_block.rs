@@ -3,9 +3,9 @@ use std::iter::FusedIterator;
 use euclid::*;
 
 pub struct ScreenSpace;
-pub type PixelPosition = Point2D<usize, ScreenSpace>;
-pub type ScreenSize = Size2D<usize, ScreenSpace>;
-pub type ScreenBlock = Box2D<usize, ScreenSpace>;
+pub type PixelPosition = Point2D<u32, ScreenSpace>;
+pub type ScreenSize = Size2D<u32, ScreenSpace>;
+pub type ScreenBlock = Box2D<u32, ScreenSpace>;
 
 /// Coordinates of chunks in the image. The scaling factor is potentially different for every chunk
 /// iterator.
@@ -13,7 +13,7 @@ struct ChunkSpace;
 
 pub trait ScreenBlockExt {
     fn internal_points(&self) -> InternalPoints;
-    fn spiral_chunks(&self, chunk_size: usize) -> SpiralChunks;
+    fn spiral_chunks(&self, chunk_size: u32) -> SpiralChunks;
 }
 
 impl ScreenBlockExt for ScreenBlock {
@@ -35,10 +35,10 @@ impl ScreenBlockExt for ScreenBlock {
     /// Create an iterator over sub blocks in (roughly) spiral order, starting in the middle of the block.
     /// Chunks are chunk_size * chunk_size large, except on the bottom and right side of the
     /// block, where they may be clipped if chunk size doesn't evenly divide block size.
-    /// Chunk size must be larger than zero. May fail if chunk size is small (1 or 2) and block
+    /// Chunk size must be larger than zero. May panic if chunk size is small (1 or 2) and block
     /// size is very large.
     /// Chunk size must be non zero.
-    fn spiral_chunks(&self, chunk_size: usize) -> SpiralChunks {
+    fn spiral_chunks(&self, chunk_size: u32) -> SpiralChunks {
         assert!(chunk_size > 0);
 
         if self.is_empty_or_negative() {
@@ -46,7 +46,7 @@ impl ScreenBlockExt for ScreenBlock {
         }
 
         let chunk_scale = Scale::new(chunk_size);
-        let size = divide_round_up(self.size(), chunk_scale).cast::<isize>();
+        let size = divide_round_up(self.size(), chunk_scale).cast::<i32>();
         let cursor = Box2D::from(size).center();
 
         let dx = 2 * cursor.y - size.height;
@@ -63,14 +63,14 @@ impl ScreenBlockExt for ScreenBlock {
 
             segment: 2,
             segment_remaining: 1,
-            remaining: size.area() as usize,
+            remaining: size.area() as u32,
         }
     }
 }
 
 #[derive(Copy,Clone,Debug)]
 pub struct InternalPoints {
-    min_x: usize, // Unfortunately this can't easily be Length :-( TODO: Fix this in euclid?
+    min_x: u32, // Unfortunately this can't easily be Length :-( TODO: Fix this in euclid?
     max: PixelPosition,
 
     cursor: PixelPosition,
@@ -121,7 +121,7 @@ impl ExactSizeIterator for InternalPoints {
         } else {
             let whole_rows = Box2D::new(point2(self.min_x, self.cursor.y + 1), self.max);
             let current_row = Box2D::new(self.cursor, point2(self.max.x, self.cursor.y + 1));
-            whole_rows.area() + current_row.area()
+            (whole_rows.area() + current_row.area()) as usize
         }
     }
 }
@@ -133,14 +133,14 @@ impl FusedIterator for InternalPoints {}
 pub struct SpiralChunks {
     block: ScreenBlock,
 
-    chunk_scale: Scale<usize, ChunkSpace, ScreenSpace>,
-    size: Size2D<isize, ChunkSpace>,
-    cursor: Point2D<isize, ChunkSpace>,
-    direction: Vector2D<isize, ChunkSpace>,
+    chunk_scale: Scale<u32, ChunkSpace, ScreenSpace>,
+    size: Size2D<i32, ChunkSpace>,
+    cursor: Point2D<i32, ChunkSpace>,
+    direction: Vector2D<i32, ChunkSpace>,
 
-    segment: usize,
-    segment_remaining: isize,
-    remaining: usize,
+    segment: u32,
+    segment_remaining: i32,
+    remaining: u32,
 }
 
 impl SpiralChunks {
@@ -169,12 +169,12 @@ impl SpiralChunks {
     fn next_segment(&mut self) {
         self.direction = vec2(self.direction.y, -self.direction.x);
         self.segment += 1;
-        self.segment_remaining = (self.segment / 2) as isize;
+        self.segment_remaining = (self.segment / 2) as i32;
     }
 
     /// Returns a new screen block that corresponds to the current iterator position.
     fn current_block(&self) -> ScreenBlock {
-        let min = self.block.min + self.cursor.to_vector().cast::<usize>() * self.chunk_scale;
+        let min = self.block.min + self.cursor.to_vector().cast::<u32>() * self.chunk_scale;
         let max = min + vec2(1, 1) * self.chunk_scale;
         let ret = ScreenBlock {
             min: min,
@@ -190,7 +190,8 @@ impl Iterator for SpiralChunks {
     type Item = ScreenBlock;
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.remaining, Some(self.remaining))
+        let remaining = self.remaining as usize;
+        (remaining, Some(remaining))
     }
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -234,14 +235,14 @@ impl Iterator for SpiralChunks {
 
 impl ExactSizeIterator for SpiralChunks {
     fn len(&self) -> usize {
-        self.remaining
+        self.remaining as usize
     }
 }
 
 impl FusedIterator for SpiralChunks {}
 
-fn divide_round_up(a: ScreenSize, b: Scale<usize, ChunkSpace, ScreenSpace>) -> Size2D<usize, ChunkSpace> {
-    let div: Size2D<usize, ChunkSpace> = a / b;
+fn divide_round_up(a: ScreenSize, b: Scale<u32, ChunkSpace, ScreenSpace>) -> Size2D<u32, ChunkSpace> {
+    let div: Size2D<u32, ChunkSpace> = a / b;
     let need_round_up = a.not_equal(div * b);
 
     div + need_round_up.select_size(Size2D::new(1, 1), Size2D::zero())
@@ -252,7 +253,7 @@ mod test {
     use proptest::prelude::*;
     use super::*;
 
-    fn abs_difference(x: usize, y: usize) -> usize {
+    fn abs_difference(x: u32, y: u32) -> u32 {
         if x < y {
             y - x
         } else {
@@ -280,12 +281,12 @@ mod test {
     }
     /// Check that all pixels in the block are covered by a pixel iterator
     fn check_pixel_iterator_covers_block<T: Iterator<Item = PixelPosition>>(mut pixel_iterator: T, block: ScreenBlock) {
-        let mut vec = vec!(false; block.width() * block.height());
+        let mut vec = vec!(false; block.area() as usize);
         while let Some(p) = pixel_iterator.next() {
             assert!(block.contains(p));
             let index = (p.x - block.min.x) + (p.y - block.min.y) * block.width();
-            assert!(!vec[index]);
-            vec[index] = true;
+            assert!(!vec[index as usize]);
+            vec[index as usize] = true;
         }
         assert!(vec.into_iter().all(|v| v));
     }
@@ -293,32 +294,32 @@ mod test {
     proptest! {
         /// Tests that pixel iterator covers all pixels in a block
         #[test]
-        fn pixel_iterator_covers_all(x in 0..100usize,
-                                     y in 0..100usize,
-                                     w in 0..100usize,
-                                     h in 0..100usize) {
+        fn pixel_iterator_covers_all(x in 0..100u32,
+                                     y in 0..100u32,
+                                     w in 0..100u32,
+                                     h in 0..100u32) {
             let block = rect(x, y, w, h).to_box2d();
             check_pixel_iterator_covers_block(block.internal_points(), block);
         }
 
         /// Tests that pixel iterator is a well behaved exact length iterator
         #[test]
-        fn pixel_iterator_exact_length(x in 0..100usize,
-                                       y in 0..100usize,
-                                       w in 0..100usize,
-                                       h in 0..100usize) {
+        fn pixel_iterator_exact_length(x in 0..100u32,
+                                       y in 0..100u32,
+                                       w in 0..100u32,
+                                       h in 0..100u32) {
             let block = rect(x, y, w, h).to_box2d();
-            check_exact_length(block.internal_points(), w * h);
+            check_exact_length(block.internal_points(), block.area() as usize);
         }
 
         /// Tests that sub blocks of a spiral chunk iterator when iterated over cover all pixels in
         /// a block
         #[test]
-        fn spiral_iterator_covers_all(x in 0..100usize,
-                                      y in 0..100usize,
-                                      w in 0..100usize,
-                                      h in 0..100usize,
-                                      block_size in 1..10usize) {
+        fn spiral_iterator_covers_all(x in 0..100u32,
+                                      y in 0..100u32,
+                                      w in 0..100u32,
+                                      h in 0..100u32,
+                                      block_size in 1..10u32) {
             let block = rect(x, y, w, h).to_box2d();
             check_pixel_iterator_covers_block(block.spiral_chunks(block_size).
                                                     flat_map(|chunk| chunk.internal_points()),
@@ -330,11 +331,11 @@ mod test {
         /// squares of increasing size. The order hovewer is just a visual feature and if it looks
         /// good enough, then it's good enough.
         #[test]
-        fn spiral_iterator_is_spiral(x in 0..100usize,
-                                     y in 0..100usize,
-                                     w in 0..100usize,
-                                     h in 0..100usize,
-                                     block_size in 1..10usize) {
+        fn spiral_iterator_is_spiral(x in 0..100u32,
+                                     y in 0..100u32,
+                                     w in 0..100u32,
+                                     h in 0..100u32,
+                                     block_size in 1..10u32) {
             let block = rect(x, y, w, h).to_box2d();
             let mut it = block.spiral_chunks(block_size);
 
@@ -351,11 +352,11 @@ mod test {
 
         /// Tests that pixel iterator is a well behaved exact length iterator
         #[test]
-        fn spiral_iterator_exact_length(x in 0..100usize,
-                                        y in 0..100usize,
-                                        w in 0..100usize,
-                                        h in 0..100usize,
-                                        block_size in 1..10usize) {
+        fn spiral_iterator_exact_length(x in 0..100u32,
+                                        y in 0..100u32,
+                                        w in 0..100u32,
+                                        h in 0..100u32,
+                                        block_size in 1..10u32) {
             let block = rect(x, y, w, h).to_box2d();
             let it = block.spiral_chunks(block_size);
             check_exact_length(it, it.len()); // Using first reported length as a baseline, because it's easy
@@ -363,10 +364,10 @@ mod test {
 
         #[test]
         #[should_panic]
-        fn zero_sized_chunks(x in 0..100usize,
-                             y in 0..100usize,
-                             w in 0..100usize,
-                             h in 0..100usize) {
+        fn zero_sized_chunks(x in 0..100u32,
+                             y in 0..100u32,
+                             w in 0..100u32,
+                             h in 0..100u32) {
             rect(x, y, w, h).to_box2d().spiral_chunks(0);
         }
     }
