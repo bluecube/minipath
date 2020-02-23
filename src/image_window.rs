@@ -36,8 +36,8 @@ impl ImageWindow {
             title: String::from(title),
             size: screen_block::ScreenSize::new(width, height),
 
-            context: context,
-            event: event,
+            context,
+            event,
 
             img: sync::Mutex::new(image::ImageBuffer::<PixelType, _>::new(width, height)),
         })

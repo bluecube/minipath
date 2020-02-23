@@ -54,12 +54,12 @@ impl ScreenBlockExt for ScreenBlock {
         let direction = Vector2D::new(dx, -1 - dx);
 
         SpiralChunks {
-            block: self.clone(),
+            block: *self,
 
-            chunk_scale: chunk_scale,
-            size: size,
-            cursor: cursor,
-            direction: direction,
+            chunk_scale,
+            size,
+            cursor,
+            direction,
 
             segment: 2,
             segment_remaining: 1,
@@ -177,7 +177,7 @@ impl SpiralChunks {
         let min = self.block.min + self.cursor.to_vector().cast::<u32>() * self.chunk_scale;
         let max = min + vec2(1, 1) * self.chunk_scale;
         let ret = ScreenBlock {
-            min: min,
+            min,
             max: point2(
                 cmp::min(self.block.max.x, max.x),
                 cmp::min(self.block.max.y, max.y),
