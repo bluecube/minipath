@@ -1,6 +1,6 @@
+use euclid::*;
 use std::cmp;
 use std::iter::FusedIterator;
-use euclid::*;
 
 pub struct ScreenSpace;
 pub type PixelPosition = Point2D<u32, ScreenSpace>;
@@ -17,7 +17,7 @@ pub trait ScreenBlockExt {
 }
 
 impl ScreenBlockExt for ScreenBlock {
-    /// Create an iterator over coordinates (x, y) pairs inside the block, 
+    /// Create an iterator over coordinates (x, y) pairs inside the block,
     /// in C order (x changes first, then y)
     fn internal_points(&self) -> InternalPoints {
         if self.is_empty_or_negative() {
@@ -68,7 +68,7 @@ impl ScreenBlockExt for ScreenBlock {
     }
 }
 
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct InternalPoints {
     min_x: u32, // Unfortunately this can't easily be Length :-( TODO: Fix this in euclid?
     max: PixelPosition,
@@ -98,7 +98,7 @@ impl Iterator for InternalPoints {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cursor.y >= self.max.y {
-            return None
+            return None;
         }
 
         let ret = self.cursor;
@@ -129,7 +129,7 @@ impl ExactSizeIterator for InternalPoints {
 impl FusedIterator for InternalPoints {}
 
 /// Iterator over (mostly) square blocks within a rectangular box in spiral order.
-#[derive(Copy,Clone,Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct SpiralChunks {
     block: ScreenBlock,
 
@@ -178,7 +178,10 @@ impl SpiralChunks {
         let max = min + vec2(1, 1) * self.chunk_scale;
         let ret = ScreenBlock {
             min: min,
-            max: point2(cmp::min(self.block.max.x, max.x), cmp::min(self.block.max.y, max.y)),
+            max: point2(
+                cmp::min(self.block.max.x, max.x),
+                cmp::min(self.block.max.y, max.y),
+            ),
         };
         debug_assert!(self.block.contains_box(&ret));
         debug_assert!(!ret.is_empty_or_negative());
@@ -196,7 +199,7 @@ impl Iterator for SpiralChunks {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
-            return None
+            return None;
         }
 
         let ret = self.current_block();
@@ -241,7 +244,10 @@ impl ExactSizeIterator for SpiralChunks {
 
 impl FusedIterator for SpiralChunks {}
 
-fn divide_round_up(a: ScreenSize, b: Scale<u32, ChunkSpace, ScreenSpace>) -> Size2D<u32, ChunkSpace> {
+fn divide_round_up(
+    a: ScreenSize,
+    b: Scale<u32, ChunkSpace, ScreenSpace>,
+) -> Size2D<u32, ChunkSpace> {
     let div: Size2D<u32, ChunkSpace> = a / b;
     let need_round_up = a.not_equal(div * b);
 
@@ -250,8 +256,8 @@ fn divide_round_up(a: ScreenSize, b: Scale<u32, ChunkSpace, ScreenSpace>) -> Siz
 
 #[cfg(test)]
 mod test {
-    use proptest::prelude::*;
     use super::*;
+    use proptest::prelude::*;
 
     fn abs_difference(x: u32, y: u32) -> u32 {
         if x < y {
@@ -261,7 +267,10 @@ mod test {
         }
     }
 
-    fn check_exact_length_internal<T: Iterator + ExactSizeIterator>(iterator: &T, expected_length: usize) {
+    fn check_exact_length_internal<T: Iterator + ExactSizeIterator>(
+        iterator: &T,
+        expected_length: usize,
+    ) {
         assert_eq!(iterator.len(), expected_length);
         let (min, max) = iterator.size_hint();
         assert_eq!(min, expected_length);
@@ -270,7 +279,10 @@ mod test {
 
     /// Goes through the whole iterator and checks that at every step iterator's size hint is equal
     /// to its reported length and equal to the expected number of elements.
-    fn check_exact_length<T: Iterator + ExactSizeIterator>(mut iterator: T, expected_length: usize) {
+    fn check_exact_length<T: Iterator + ExactSizeIterator>(
+        mut iterator: T,
+        expected_length: usize,
+    ) {
         check_exact_length_internal(&iterator, expected_length);
 
         let mut count = 0usize;
@@ -280,8 +292,11 @@ mod test {
         }
     }
     /// Check that all pixels in the block are covered by a pixel iterator
-    fn check_pixel_iterator_covers_block<T: Iterator<Item = PixelPosition>>(mut pixel_iterator: T, block: ScreenBlock) {
-        let mut vec = vec!(false; block.area() as usize);
+    fn check_pixel_iterator_covers_block<T: Iterator<Item = PixelPosition>>(
+        mut pixel_iterator: T,
+        block: ScreenBlock,
+    ) {
+        let mut vec = vec![false; block.area() as usize];
         while let Some(p) = pixel_iterator.next() {
             assert!(block.contains(p));
             let index = (p.x - block.min.x) + (p.y - block.min.y) * block.width();

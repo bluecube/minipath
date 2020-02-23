@@ -1,19 +1,22 @@
-mod screen_block;
 mod image_window;
+mod screen_block;
 
 use screen_block::ScreenBlockExt;
 
 use anyhow;
-use rand;
-use euclid;
 use crossbeam_utils;
+use euclid;
 use num_cpus;
+use rand;
 
-use std::time;
-use std::thread;
 use std::sync;
+use std::thread;
+use std::time;
 
-fn run_all(output: image_window::ImageWindow, block_iterator: screen_block::SpiralChunks) -> anyhow::Result<()> {
+fn run_all(
+    output: image_window::ImageWindow,
+    block_iterator: screen_block::SpiralChunks,
+) -> anyhow::Result<()> {
     let block_iterator = sync::Mutex::new(block_iterator);
 
     crossbeam_utils::thread::scope(|scope| -> anyhow::Result<()> {
@@ -32,12 +35,20 @@ fn run_all(output: image_window::ImageWindow, block_iterator: screen_block::Spir
                     use rand::Rng;
                     let mut rng = rand::thread_rng();
                     thread::sleep(time::Duration::from_millis(rng.gen_range(500, 2000)));
-                    output_writer(block,
-                                  image::RgbaImage::from_pixel(50, 50,
-                                                               image::Rgba([rng.gen_range(0, 255),
-                                                                            rng.gen_range(0, 255),
-                                                                            rng.gen_range(0, 255),
-                                                                            rng.gen_range(128, 255)]))).unwrap();
+                    output_writer(
+                        block,
+                        image::RgbaImage::from_pixel(
+                            50,
+                            50,
+                            image::Rgba([
+                                rng.gen_range(0, 255),
+                                rng.gen_range(0, 255),
+                                rng.gen_range(0, 255),
+                                rng.gen_range(128, 255),
+                            ]),
+                        ),
+                    )
+                    .unwrap();
                 }
             });
         }
@@ -47,7 +58,8 @@ fn run_all(output: image_window::ImageWindow, block_iterator: screen_block::Spir
         run_result?;
 
         Ok(())
-    }).unwrap()?; // Propagate panics and unwrap internal errors
+    })
+    .unwrap()?; // Propagate panics and unwrap internal errors
 
     Ok(())
 }

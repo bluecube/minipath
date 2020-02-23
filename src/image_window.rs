@@ -1,8 +1,8 @@
 use crate::screen_block;
 
-use sdl2;
-use image;
 use anyhow;
+use image;
+use sdl2;
 use std::sync;
 
 use image::GenericImage;
@@ -28,7 +28,9 @@ impl ImageWindow {
         let context = sdl2::init().map_err(anyhow_from_string)?;
         let event = context.event().map_err(anyhow_from_string)?;
 
-        event.register_custom_event::<screen_block::ScreenBlock>().map_err(anyhow_from_string)?;
+        event
+            .register_custom_event::<screen_block::ScreenBlock>()
+            .map_err(anyhow_from_string)?;
 
         Ok(ImageWindow {
             title: String::from(title),
@@ -55,7 +57,11 @@ impl ImageWindow {
         canvas.set_logical_size(self.size.width, self.size.height)?;
 
         let texture_creator = canvas.texture_creator();
-        let mut texture = texture_creator.create_texture_streaming(SDL_PIXEL_FORMAT, self.size.width, self.size.height)?;
+        let mut texture = texture_creator.create_texture_streaming(
+            SDL_PIXEL_FORMAT,
+            self.size.width,
+            self.size.height,
+        )?;
         texture.set_blend_mode(sdl2::render::BlendMode::Blend);
 
         self.update_texture(&mut texture, self.size.into())?; // Copy the empty output to texture
@@ -67,72 +73,104 @@ impl ImageWindow {
             use sdl2::event::WindowEvent;
             use sdl2::keyboard::Keycode;
             match event {
-                Event::Quit {..}
-                    | Event::KeyDown {keycode: Some(Keycode::Escape), ..}
-                    | Event::KeyDown {keycode: Some(Keycode::Q), ..} => break,
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Q),
+                    ..
+                } => break,
 
-                Event::Window {win_event: WindowEvent::Exposed, ..} => redraw(&mut canvas, &texture).map_err(anyhow_from_string)?,
+                Event::Window {
+                    win_event: WindowEvent::Exposed,
+                    ..
+                } => redraw(&mut canvas, &texture).map_err(anyhow_from_string)?,
 
-                _ => if let Some(rendered) = event.as_user_event_type::<screen_block::ScreenBlock>() {
-                    self.update_texture(&mut texture, rendered)?;
-                    redraw(&mut canvas, &texture).map_err(anyhow_from_string)?;
-                },
+                _ => {
+                    if let Some(rendered) = event.as_user_event_type::<screen_block::ScreenBlock>()
+                    {
+                        self.update_texture(&mut texture, rendered)?;
+                        redraw(&mut canvas, &texture).map_err(anyhow_from_string)?;
+                    }
+                }
             }
         }
         Ok(())
     }
 
     /// Creates a writer function that can write data into the window from different thread.
-    pub fn make_writer(&self) -> impl Fn(screen_block::ScreenBlock, image::RgbaImage) -> anyhow::Result<()> + '_ {
+    pub fn make_writer(
+        &self,
+    ) -> impl Fn(screen_block::ScreenBlock, image::RgbaImage) -> anyhow::Result<()> + '_ {
         let event_sender = self.event.event_sender();
         let img = &self.img;
-        move |block: screen_block::ScreenBlock, block_buffer: image::RgbaImage| -> anyhow::Result<()> {
+        move |block, block_buffer| {
             debug_assert_eq!(block_buffer.width(), block.width());
             debug_assert_eq!(block_buffer.height(), block.width());
 
             (*img.lock().unwrap()).copy_from(&block_buffer, block.min.x, block.min.y)?;
-            event_sender.push_custom_event(block).map_err(anyhow_from_string)?;
+            event_sender
+                .push_custom_event(block)
+                .map_err(anyhow_from_string)?;
 
             Ok(())
         }
     }
 
     /// Copies a block from the image to the texture (to the gpu).
-    fn update_texture(&self, texture: &mut sdl2::render::Texture, block: screen_block::ScreenBlock) -> anyhow::Result<()> {
+    fn update_texture(
+        &self,
+        texture: &mut sdl2::render::Texture,
+        block: screen_block::ScreenBlock,
+    ) -> anyhow::Result<()> {
         let img = self.img.lock().unwrap();
 
-        let rect = sdl2::rect::Rect::new(block.min.x as i32,
-                                         block.min.y as i32,
-                                         block.width(),
-                                         block.height());
+        let rect = sdl2::rect::Rect::new(
+            block.min.x as i32,
+            block.min.y as i32,
+            block.width(),
+            block.height(),
+        );
 
-        texture.with_lock(Some(rect), |texture_buffer: &mut [u8], pitch: usize| -> anyhow::Result<()> {
-            // Obtain view to the part of the texture that we are updating.
-            let mut texture_samples = image::flat::FlatSamples{
-                samples: texture_buffer,
-                layout: image::flat::SampleLayout{
-                    channels: 4, // There is no place to get this value programatically
-                    channel_stride: 1, // There is no place to get this value programatically
-                    width: block.width(),
-                    width_stride: SDL_PIXEL_FORMAT.byte_size_per_pixel(),
-                    height: block.height(),
-                    height_stride: pitch
+        texture
+            .with_lock(
+                Some(rect),
+                |texture_buffer: &mut [u8], pitch: usize| -> anyhow::Result<()> {
+                    // Obtain view to the part of the texture that we are updating.
+                    let mut texture_samples = image::flat::FlatSamples {
+                        samples: texture_buffer,
+                        layout: image::flat::SampleLayout {
+                            channels: 4,       // There is no place to get this value programatically
+                            channel_stride: 1, // There is no place to get this value programatically
+                            width: block.width(),
+                            width_stride: SDL_PIXEL_FORMAT.byte_size_per_pixel(),
+                            height: block.height(),
+                            height_stride: pitch,
+                        },
+                        color_hint: None,
+                    };
+                    let mut texture_view = texture_samples.as_view_mut::<PixelType>().unwrap();
+                    texture_view.copy_from(
+                        &(*img).view(block.min.x, block.min.y, block.width(), block.height()),
+                        0,
+                        0,
+                    )?;
+                    Ok(())
                 },
-                color_hint: None,
-            };
-            let mut texture_view = texture_samples.as_view_mut::<PixelType>().unwrap();
-            texture_view.copy_from(&(*img).view(block.min.x, block.min.y, block.width(), block.height()),
-                                   0, 0)?;
-            Ok(())
-        }).map_err(anyhow_from_string)??;
+            )
+            .map_err(anyhow_from_string)??;
 
         Ok(())
     }
-
 }
 
 /// Completely redraws the canvas, puts a checkerboard behind and draws the texture on top.
-fn redraw(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>, texture: &sdl2::render::Texture) -> Result<(), String> {
+fn redraw(
+    canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
+    texture: &sdl2::render::Texture,
+) -> Result<(), String> {
     draw_checkerboard(canvas)?;
     canvas.copy(texture, None, None)?;
     canvas.present();
@@ -151,10 +189,12 @@ fn draw_checkerboard(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) -> 
 
     for y in 0..(h / checkerboard_size) {
         for x in ((y % 2)..(w / checkerboard_size)).step_by(2) {
-            let rect = sdl2::rect::Rect::new((x * checkerboard_size) as i32,
-                                             (y * checkerboard_size) as i32,
-                                             checkerboard_size,
-                                             checkerboard_size);
+            let rect = sdl2::rect::Rect::new(
+                (x * checkerboard_size) as i32,
+                (y * checkerboard_size) as i32,
+                checkerboard_size,
+                checkerboard_size,
+            );
             canvas.fill_rect(Some(rect))?;
         }
     }
