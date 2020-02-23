@@ -25,6 +25,7 @@ fn run_all(
             let output_writer = output.make_writer();
 
             scope.spawn(move |_| {
+                #[allow(clippy::while_let_loop)]
                 loop {
                     let block = match (*(block_iterator.lock().unwrap())).next() {
                         Some(block) => block,
