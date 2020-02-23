@@ -13,7 +13,7 @@ use std::time;
 use std::thread;
 use std::sync;
 
-fn run_all(mut output: image_window::ImageWindow, block_iterator: screen_block::SpiralChunks) -> anyhow::Result<()> {
+fn run_all(output: image_window::ImageWindow, block_iterator: screen_block::SpiralChunks) -> anyhow::Result<()> {
     let block_iterator = sync::Mutex::new(block_iterator);
 
     crossbeam_utils::thread::scope(|scope| -> anyhow::Result<()> {
