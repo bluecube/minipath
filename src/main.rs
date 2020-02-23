@@ -41,19 +41,19 @@ fn run_all(mut output: image_window::ImageWindow, block_iterator: screen_block::
                 }
             });
         }
-        let event_loop_result = output.event_loop();
+        let run_result = output.run();
         // When the event loop finishes, kill the block iterator to stop any further blocks from being rendered
         (*(block_iterator.lock().unwrap())).kill();
-        event_loop_result?;
+        run_result?;
 
         Ok(())
-    })?;
+    }).unwrap()?; // Propagate panics and unwrap internal errors
 
     Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut w = image_window::ImageWindow::new("minipath", 800, 600)?;
+    let w = image_window::ImageWindow::new("minipath", 800, 600)?;
     run_all(w, euclid::rect(0, 0, 800, 600).to_box2d().spiral_chunks(50))?;
     Ok(())
 }
