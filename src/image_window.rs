@@ -1,6 +1,5 @@
 use crate::screen_block;
 
-use anyhow;
 use image;
 use sdl2;
 use std::sync;
@@ -10,6 +9,9 @@ use image::GenericImageView;
 
 const SDL_PIXEL_FORMAT: sdl2::pixels::PixelFormatEnum = sdl2::pixels::PixelFormatEnum::ABGR8888;
 type PixelType = image::Rgba<u8>;
+
+type AnyError = Box<dyn std::error::Error>;
+type SimpleResult = Result<(), AnyError>;
 
 pub struct ImageWindow {
     title: String,
@@ -24,13 +26,12 @@ pub struct ImageWindow {
 impl ImageWindow {
     /// Creates a SDL window.
     /// There can be only one!
-    pub fn new(title: &str, width: u32, height: u32) -> anyhow::Result<ImageWindow> {
-        let context = sdl2::init().map_err(anyhow_from_string)?;
-        let event = context.event().map_err(anyhow_from_string)?;
+    pub fn new(title: &str, width: u32, height: u32) -> Result<ImageWindow, AnyError> {
+        let context = sdl2::init()?;
+        let event = context.event()?;
 
         event
-            .register_custom_event::<screen_block::ScreenBlock>()
-            .map_err(anyhow_from_string)?;
+            .register_custom_event::<screen_block::ScreenBlock>()?;
 
         Ok(ImageWindow {
             title: String::from(title),
@@ -45,8 +46,8 @@ impl ImageWindow {
 
     /// Runs SDL event loop and handles the window.
     /// Only exits when the window is closed.
-    pub fn run(&self) -> anyhow::Result<()> {
-        let video = self.context.video().map_err(anyhow_from_string)?;
+    pub fn run(&self) -> SimpleResult {
+        let video = self.context.video()?;
         let mut canvas = video
             .window(&self.title, self.size.width, self.size.height)
             .position_centered()
@@ -66,7 +67,7 @@ impl ImageWindow {
 
         self.update_texture(&mut texture, self.size.into())?; // Copy the empty output to texture
 
-        let mut events = self.context.event_pump().map_err(anyhow_from_string)?;
+        let mut events = self.context.event_pump()?;
 
         for event in events.wait_iter() {
             use sdl2::event::Event;
@@ -86,13 +87,13 @@ impl ImageWindow {
                 Event::Window {
                     win_event: WindowEvent::Exposed,
                     ..
-                } => redraw(&mut canvas, &texture).map_err(anyhow_from_string)?,
+                } => redraw(&mut canvas, &texture)?,
 
                 _ => {
                     if let Some(rendered) = event.as_user_event_type::<screen_block::ScreenBlock>()
                     {
                         self.update_texture(&mut texture, rendered)?;
-                        redraw(&mut canvas, &texture).map_err(anyhow_from_string)?;
+                        redraw(&mut canvas, &texture)?;
                     }
                 }
             }
@@ -103,7 +104,7 @@ impl ImageWindow {
     /// Creates a writer function that can write data into the window from different thread.
     pub fn make_writer(
         &self,
-    ) -> impl Fn(screen_block::ScreenBlock, image::RgbaImage) -> anyhow::Result<()> + '_ {
+    ) -> impl Fn(screen_block::ScreenBlock, image::RgbaImage) -> SimpleResult + '_ {
         let event_sender = self.event.event_sender();
         let img = &self.img;
         move |block, block_buffer| {
@@ -112,8 +113,7 @@ impl ImageWindow {
 
             (*img.lock().unwrap()).copy_from(&block_buffer, block.min.x, block.min.y)?;
             event_sender
-                .push_custom_event(block)
-                .map_err(anyhow_from_string)?;
+                .push_custom_event(block)?;
 
             Ok(())
         }
@@ -124,7 +124,7 @@ impl ImageWindow {
         &self,
         texture: &mut sdl2::render::Texture,
         block: screen_block::ScreenBlock,
-    ) -> anyhow::Result<()> {
+    ) -> SimpleResult {
         let img = self.img.lock().unwrap();
 
         let rect = sdl2::rect::Rect::new(
@@ -137,7 +137,7 @@ impl ImageWindow {
         texture
             .with_lock(
                 Some(rect),
-                |texture_buffer: &mut [u8], pitch: usize| -> anyhow::Result<()> {
+                |texture_buffer: &mut [u8], pitch: usize| -> SimpleResult {
                     // Obtain view to the part of the texture that we are updating.
                     let mut texture_samples = image::flat::FlatSamples {
                         samples: texture_buffer,
@@ -159,8 +159,7 @@ impl ImageWindow {
                     )?;
                     Ok(())
                 },
-            )
-            .map_err(anyhow_from_string)??;
+            )??;
 
         Ok(())
     }
@@ -170,7 +169,7 @@ impl ImageWindow {
 fn redraw(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     texture: &sdl2::render::Texture,
-) -> Result<(), String> {
+) -> SimpleResult {
     draw_checkerboard(canvas)?;
     canvas.copy(texture, None, None)?;
     canvas.present();
@@ -179,7 +178,7 @@ fn redraw(
 }
 
 /// Clears the canvas with a checkerboard pattern.
-fn draw_checkerboard(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) -> Result<(), String> {
+fn draw_checkerboard(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) -> SimpleResult {
     canvas.set_draw_color(sdl2::pixels::Color::RGB(50, 50, 50));
     canvas.clear();
     canvas.set_draw_color(sdl2::pixels::Color::RGB(200, 200, 200));
@@ -200,8 +199,4 @@ fn draw_checkerboard(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) -> 
     }
 
     Ok(())
-}
-
-fn anyhow_from_string(e: String) -> anyhow::Error {
-    anyhow::anyhow!(e)
 }

@@ -3,7 +3,6 @@ mod screen_block;
 
 use screen_block::ScreenBlockExt;
 
-use anyhow;
 use crossbeam_utils;
 use euclid;
 use num_cpus;
@@ -13,13 +12,16 @@ use std::sync;
 use std::thread;
 use std::time;
 
+type AnyError = Box<dyn std::error::Error>;
+type SimpleResult = Result<(), AnyError>;
+
 fn run_all(
     output: image_window::ImageWindow,
     block_iterator: screen_block::SpiralChunks,
-) -> anyhow::Result<()> {
+) -> SimpleResult {
     let block_iterator = sync::Mutex::new(block_iterator);
 
-    crossbeam_utils::thread::scope(|scope| -> anyhow::Result<()> {
+    crossbeam_utils::thread::scope(|scope| -> SimpleResult {
         for _worker_id in 0..num_cpus::get() {
             let block_iterator = &block_iterator;
             let output_writer = output.make_writer();
@@ -65,7 +67,7 @@ fn run_all(
     Ok(())
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> SimpleResult {
     let w = image_window::ImageWindow::new("minipath", 800, 600)?;
     run_all(w, euclid::rect(0, 0, 800, 600).to_box2d().spiral_chunks(50))?;
     Ok(())
