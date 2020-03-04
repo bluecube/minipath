@@ -93,12 +93,15 @@ where
 
                 #[allow(clippy::while_let_loop)]
                 loop {
-                    let item = match (*iterator.lock().unwrap()).next() {
-                        Some(item) => item,
-                        None => {
-                            (*iterator.lock().unwrap()).kill();
-                            break;
-                        },
+                    let item = {
+                        let mut iterator_guard = iterator.lock().unwrap();
+                        match (*iterator_guard).next() {
+                            Some(item) => item,
+                            None => {
+                                (*iterator_guard).kill();
+                                break;
+                            },
+                        }
                     };
                     worker_fun(&mut state, item)
                         .map_err(|source| ParallelForError::WorkerTaskError{source})?;
@@ -185,5 +188,77 @@ where
 {
     default fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use proptest::prelude::*;
+
+    // TODO:
+    // Error propagation (3 tests)
+    // Stopping from background task
+    // Actually runs in paralllel (?!?)
+
+    // Checks that each worker has the same thread id as the state
+    #[test]
+    fn stable_thread_id() {
+        parallel_for_each(
+            0..10,
+            |_worker_id| -> Result<_, NoError> { Ok(std::thread::current().id()) },
+            |state_thread_id, _i| -> Result<(), NoError> {
+                assert_eq!(&std::thread::current().id(), state_thread_id);
+                Ok(())
+            },
+            || -> Result<_, NoError> { Ok(Continue::Continue) }).unwrap();
+    }
+
+    proptest! {
+        /// Sums a range using pralellel_for_each, checks that sum is as expected
+        #[test]
+        fn sum(n in 0..1000u32) {
+            let sum = std::sync::Mutex::new(0u32);
+
+            parallel_for_each(
+                0..n,
+                |_worker_id| -> Result<(), NoError> { Ok(()) },
+                |_state, i| -> Result<(), NoError> {
+                    (*sum.lock().unwrap()) += i;
+                    Ok(())
+                },
+                || -> Result<_, NoError> { Ok(Continue::Continue) }).unwrap();
+
+            assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
+        }
+
+        /// Sums a range using pralellel_for_each, keeping the partial sums in shared state, checks
+        /// that sum is as expected
+        #[test]
+        fn sum_in_state(n in 0..1000u32) {
+            let sum = std::sync::Mutex::new(0u32);
+
+            struct State<'a> {
+                local_sum: u32,
+                global_sum: &'a std::sync::Mutex<u32>,
+            }
+
+            impl<'a> Drop for State<'a> {
+                fn drop(&mut self) {
+                    (*self.global_sum.lock().unwrap()) += self.local_sum;
+                }
+            }
+
+            parallel_for_each(
+                0..n,
+                |_worker_id| -> Result<_, NoError> { Ok(State { local_sum: 0, global_sum: &sum }) },
+                |state, i| -> Result<(), NoError> {
+                    state.local_sum += i;
+                    Ok(())
+                },
+                || -> Result<_, NoError> { Ok(Continue::Continue) }).unwrap();
+
+            assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
+        }
     }
 }
