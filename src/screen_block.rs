@@ -144,11 +144,6 @@ pub struct SpiralChunks {
 }
 
 impl SpiralChunks {
-    /// Drops all remaining chunks in the iterator, makes the .next() method return None
-    pub fn kill(&mut self) {
-        self.remaining = 0;
-    }
-
     /// Constructs an iterator that returns no blocks.
     fn empty() -> SpiralChunks {
         SpiralChunks {
@@ -385,17 +380,5 @@ mod test {
                              h in 0..100u32) {
             rect(x, y, w, h).to_box2d().spiral_chunks(0);
         }
-    }
-
-    /// Tests that the iterator can be killed.
-    #[test]
-    fn kill() {
-        let mut it = rect(0, 0, 10, 10).to_box2d().spiral_chunks(3);
-        assert!(it.len() > 0);
-        assert!(it.nth(5).is_some()); // We move by some distance in the iterator and check that there were enough elements
-        assert!(it.len() > 0);
-        it.kill();
-        assert!(it.len() == 0);
-        assert!(it.next().is_none());
     }
 }

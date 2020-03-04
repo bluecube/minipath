@@ -10,7 +10,7 @@ use image::GenericImageView;
 const SDL_PIXEL_FORMAT: sdl2::pixels::PixelFormatEnum = sdl2::pixels::PixelFormatEnum::ABGR8888;
 type PixelType = image::Rgba<u8>;
 
-type AnyError = Box<dyn std::error::Error>;
+type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
 type SimpleResult = Result<(), AnyError>;
 
 pub struct ImageWindow {
@@ -30,8 +30,7 @@ impl ImageWindow {
         let context = sdl2::init()?;
         let event = context.event()?;
 
-        event
-            .register_custom_event::<screen_block::ScreenBlock>()?;
+        event.register_custom_event::<screen_block::ScreenBlock>()?;
 
         Ok(ImageWindow {
             title: String::from(title),
@@ -112,8 +111,7 @@ impl ImageWindow {
             debug_assert_eq!(block_buffer.height(), block.width());
 
             (*img.lock().unwrap()).copy_from(&block_buffer, block.min.x, block.min.y)?;
-            event_sender
-                .push_custom_event(block)?;
+            event_sender.push_custom_event(block)?;
 
             Ok(())
         }
@@ -134,32 +132,31 @@ impl ImageWindow {
             block.height(),
         );
 
-        texture
-            .with_lock(
-                Some(rect),
-                |texture_buffer: &mut [u8], pitch: usize| -> SimpleResult {
-                    // Obtain view to the part of the texture that we are updating.
-                    let mut texture_samples = image::flat::FlatSamples {
-                        samples: texture_buffer,
-                        layout: image::flat::SampleLayout {
-                            channels: 4,       // There is no place to get this value programatically
-                            channel_stride: 1, // There is no place to get this value programatically
-                            width: block.width(),
-                            width_stride: SDL_PIXEL_FORMAT.byte_size_per_pixel(),
-                            height: block.height(),
-                            height_stride: pitch,
-                        },
-                        color_hint: None,
-                    };
-                    let mut texture_view = texture_samples.as_view_mut::<PixelType>().unwrap();
-                    texture_view.copy_from(
-                        &(*img).view(block.min.x, block.min.y, block.width(), block.height()),
-                        0,
-                        0,
-                    )?;
-                    Ok(())
-                },
-            )??;
+        texture.with_lock(
+            Some(rect),
+            |texture_buffer: &mut [u8], pitch: usize| -> SimpleResult {
+                // Obtain view to the part of the texture that we are updating.
+                let mut texture_samples = image::flat::FlatSamples {
+                    samples: texture_buffer,
+                    layout: image::flat::SampleLayout {
+                        channels: 4,       // There is no place to get this value programatically
+                        channel_stride: 1, // There is no place to get this value programatically
+                        width: block.width(),
+                        width_stride: SDL_PIXEL_FORMAT.byte_size_per_pixel(),
+                        height: block.height(),
+                        height_stride: pitch,
+                    },
+                    color_hint: None,
+                };
+                let mut texture_view = texture_samples.as_view_mut::<PixelType>().unwrap();
+                texture_view.copy_from(
+                    &(*img).view(block.min.x, block.min.y, block.width(), block.height()),
+                    0,
+                    0,
+                )?;
+                Ok(())
+            },
+        )??;
 
         Ok(())
     }

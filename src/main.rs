@@ -1,68 +1,52 @@
+#![feature(specialization)]
+
 mod image_window;
+mod parallel_for_each;
 mod screen_block;
 
 use screen_block::ScreenBlockExt;
 
-use crossbeam_utils;
 use euclid;
-use num_cpus;
 use rand;
 
-use std::sync;
-use std::thread;
-use std::time;
-
-type AnyError = Box<dyn std::error::Error>;
+type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
 type SimpleResult = Result<(), AnyError>;
 
 fn run_all(
     output: image_window::ImageWindow,
     block_iterator: screen_block::SpiralChunks,
 ) -> SimpleResult {
-    let block_iterator = sync::Mutex::new(block_iterator);
+    let output_writer = output.make_writer();
 
-    crossbeam_utils::thread::scope(|scope| -> SimpleResult {
-        for _worker_id in 0..num_cpus::get() {
-            let block_iterator = &block_iterator;
-            let output_writer = output.make_writer();
+    parallel_for_each::parallel_for_each(
+        block_iterator,
+        |_worker_id| -> Result<_, parallel_for_each::NoError> { Ok(image::RgbaImage::new(50, 50)) },
+        |_buffer, block| -> Result<_, AnyError> {
+            // Pretend to render a block
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            std::thread::sleep(std::time::Duration::from_millis(rng.gen_range(500, 2000)));
+            output_writer(
+                block,
+                image::RgbaImage::from_pixel(
+                    50,
+                    50,
+                    image::Rgba([
+                        rng.gen_range(0, 255),
+                        rng.gen_range(0, 255),
+                        rng.gen_range(0, 255),
+                        rng.gen_range(128, 255),
+                    ]),
+                ),
+            )?;
 
-            scope.spawn(move |_| {
-                #[allow(clippy::while_let_loop)]
-                loop {
-                    let block = match (*(block_iterator.lock().unwrap())).next() {
-                        Some(block) => block,
-                        None => break,
-                    };
-
-                    // Pretend to render a block
-                    use rand::Rng;
-                    let mut rng = rand::thread_rng();
-                    thread::sleep(time::Duration::from_millis(rng.gen_range(500, 2000)));
-                    output_writer(
-                        block,
-                        image::RgbaImage::from_pixel(
-                            50,
-                            50,
-                            image::Rgba([
-                                rng.gen_range(0, 255),
-                                rng.gen_range(0, 255),
-                                rng.gen_range(0, 255),
-                                rng.gen_range(128, 255),
-                            ]),
-                        ),
-                    )
-                    .unwrap();
-                }
-            });
-        }
-        let run_result = output.run();
-        // When the event loop finishes, kill the block iterator to stop any further blocks from being rendered
-        (*(block_iterator.lock().unwrap())).kill();
-        run_result?;
-
-        Ok(())
-    })
-    .unwrap()?; // Propagate panics and unwrap internal errors
+            Ok(())
+        },
+        || -> Result<_, AnyError> {
+            output.run()?;
+            Ok(parallel_for_each::Continue::Stop)
+        },
+    )?;
 
     Ok(())
 }
