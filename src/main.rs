@@ -46,6 +46,7 @@ fn run_all(
             output.run()?;
             Ok(parallel_for_each::Continue::Stop)
         },
+        parallel_for_each::WorkerCount::Auto,
     )?;
 
     Ok(())

@@ -1,13 +1,22 @@
 use crossbeam_utils;
 use num_cpus;
 
+use std::num::NonZeroUsize;
+
 use scopeguard::defer;
 use snafu::Snafu;
 
 #[must_use]
+#[derive(Copy, Clone, Debug)]
 pub enum Continue {
     Continue,
     Stop,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum WorkerCount {
+    Auto,
+    Manual(NonZeroUsize),
 }
 
 #[derive(Debug)]
@@ -63,6 +72,7 @@ pub fn parallel_for_each<It, Fi, Fw, Fb, Ei, Ew, Eb, State>(
     init_fun: Fi,
     worker_fun: Fw,
     background_fun: Fb,
+    worker_count: WorkerCount,
 ) -> Result<(), ParallelForError<Ei, Ew, Eb>>
 where
     It: Iterator + Send,
@@ -75,7 +85,10 @@ where
 {
     let iterator = std::sync::Mutex::new(FusedIterator::new(iterator));
 
-    let num_threads = num_cpus::get();
+    let worker_count = match worker_count {
+        WorkerCount::Auto => num_cpus::get(),
+        WorkerCount::Manual(num) => num.get(),
+    };
 
     // References that can safely be moved into the thread
     let iterator = &iterator;
@@ -83,7 +96,7 @@ where
     let worker_fun = &worker_fun;
 
     crossbeam_utils::thread::scope(|scope| -> Result<(), ParallelForError<Ei, Ew, Eb>> {
-        for worker_id in 0..num_threads {
+        for worker_id in 0..worker_count {
             scope.spawn(move |_| -> Result<(), ParallelForError<Ei, Ew, Eb>> {
                 defer! {
                     (*iterator.lock().unwrap()).kill(); // Stop all threads if we're running out from the loop
@@ -195,29 +208,36 @@ where
 mod test {
     use super::*;
     use proptest::prelude::*;
+    use panic_control;
+
+    fn worker_count_strategy() -> impl Strategy<Value = WorkerCount> {
+        prop_oneof![
+            Just(WorkerCount::Auto),
+            (1..32usize).prop_map(|n| WorkerCount::Manual(NonZeroUsize::new(n).unwrap())),
+        ]
+    }
 
     // TODO:
     // Error propagation (3 tests)
-    // Stopping from background task
-    // Actually runs in paralllel (?!?)
-
-    // Checks that each worker has the same thread id as the state
-    #[test]
-    fn stable_thread_id() {
-        parallel_for_each(
-            0..10,
-            |_worker_id| -> Result<_, NoError> { Ok(std::thread::current().id()) },
-            |state_thread_id, _i| -> Result<(), NoError> {
-                assert_eq!(&std::thread::current().id(), state_thread_id);
-                Ok(())
-            },
-            || -> Result<_, NoError> { Ok(Continue::Continue) }).unwrap();
-    }
 
     proptest! {
+        // Checks that each worker has the same thread id as the state
+        #[test]
+        fn stable_thread_id(worker_count in worker_count_strategy(), n in 0..1000u32) {
+            parallel_for_each(
+                0..n,
+                |_worker_id| -> Result<_, NoError> { Ok(std::thread::current().id()) },
+                |state_thread_id, _i| -> Result<(), NoError> {
+                    assert_eq!(&std::thread::current().id(), state_thread_id);
+                    Ok(())
+                },
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count).unwrap();
+        }
+
         /// Sums a range using pralellel_for_each, checks that sum is as expected
         #[test]
-        fn sum(n in 0..1000u32) {
+        fn sum(worker_count in worker_count_strategy(), n in 0..1000u32) {
             let sum = std::sync::Mutex::new(0u32);
 
             parallel_for_each(
@@ -227,7 +247,8 @@ mod test {
                     (*sum.lock().unwrap()) += i;
                     Ok(())
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) }).unwrap();
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count).unwrap();
 
             assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
         }
@@ -235,7 +256,7 @@ mod test {
         /// Sums a range using pralellel_for_each, keeping the partial sums in shared state, checks
         /// that sum is as expected
         #[test]
-        fn sum_in_state(n in 0..1000u32) {
+        fn sum_in_state(worker_count in worker_count_strategy(), n in 0..1000u32) {
             let sum = std::sync::Mutex::new(0u32);
 
             struct State<'a> {
@@ -256,9 +277,144 @@ mod test {
                     state.local_sum += i;
                     Ok(())
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) }).unwrap();
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count).unwrap();
 
             assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
+        }
+
+        /// Checks that the jobs are actually running in different threads by
+        /// blocking as many threads as there are 
+        #[test]
+        fn actual_threads(worker_count in 1..10usize) {
+            let count_waiting = std::sync::Mutex::new(0usize);
+            let cond = std::sync::Condvar::new();
+
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+
+            parallel_for_each(
+                0..worker_count,
+                |_worker_id| -> Result<(), NoError> {
+                    let mut count_waiting = count_waiting.lock().unwrap();
+                    *count_waiting += 1;
+                    if *count_waiting >= worker_count {
+                        cond.notify_all();
+                    } else {
+                        loop {
+                            let result = cond.wait_timeout(
+                                count_waiting,
+                                end - std::time::Instant::now()).unwrap();
+                            count_waiting = result.0;
+                            if result.1.timed_out() || *count_waiting >= worker_count {
+                                break;
+                            }
+                        }
+                    };
+                    Ok(())
+                },
+                |_state, _i| -> Result<(), NoError> { Ok(()) },
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                WorkerCount::Manual(NonZeroUsize::new(worker_count).unwrap())).unwrap();
+
+            assert_eq!(*count_waiting.lock().unwrap(), worker_count);
+        }
+
+        /// Checks that the iteration stops when background function returns Stop.
+        #[test]
+        fn stop_from_background(worker_count in worker_count_strategy()) {
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+
+            parallel_for_each(
+                0..,
+                |_worker_id| -> Result<(), NoError> {
+                    panic_control::disable_hook_in_current_thread(); // Disable panic hookks to keep the output clean in case the test fails
+                    Ok(())
+                },
+                |_state, _i| -> Result<(), NoError> {
+                    assert!(std::time::Instant::now() < end);
+                    Ok(())
+                },
+                || -> Result<_, NoError> { Ok(Continue::Stop) },
+                worker_count).unwrap();
+        }
+
+        /// Checks that panics from thread init function are propagated
+        #[test]
+        #[should_panic]
+        fn propagates_panics_init(worker_count in worker_count_strategy(), n in 0..1000u32) {
+            parallel_for_each(
+                0..n,
+                |_worker_id| -> Result<(), NoError> {
+                    panic_control::disable_hook_in_current_thread();
+                    panic!("Don't panic!");
+                },
+                |_state, _i| -> Result<(), NoError> { Ok(()) },
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count).unwrap();
+        }
+
+        /// Checks that panics from thread init function are propagated
+        #[test]
+        #[should_panic]
+        fn propagates_panics_worker(worker_count in worker_count_strategy(), n in 0..1000u32) {
+            parallel_for_each(
+                0..n,
+                |_worker_id| -> Result<(), NoError> {
+                    panic_control::disable_hook_in_current_thread();
+                    Ok(())
+                },
+                |_state, _i| -> Result<(), NoError> {
+                    panic!("Don't panic!");
+                },
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count).unwrap();
+        }
+
+        /// Checks that panics from thread init function are propagated
+        #[test]
+        #[should_panic]
+        fn propagates_panics_background(worker_count in worker_count_strategy(), n in 0..1000u32) {
+            parallel_for_each(
+                0..n,
+                |_worker_id| -> Result<(), NoError> { Ok(()) },
+                |_state, _i| -> Result<(), NoError> { Ok(()) },
+                || -> Result<_, NoError> { panic!("Don't panic!"); },
+                worker_count).unwrap();
+        }
+
+        #[test]
+        fn ugly_iterator(worker_count in worker_count_strategy(), n in 0..1000u32) {
+            struct UglyIterator(u32);
+
+            impl Iterator for UglyIterator {
+                type Item = u32;
+                fn next(&mut self) -> Option<u32> {
+                    if self.0 == 0 {
+                        Some(1)
+                    } else {
+                        self.0 -= 1;
+                        if self.0 == 0 {
+                            None
+                        } else {
+                            Some(1)
+                        }
+                    }
+                }
+            }
+
+            let sum = std::sync::Mutex::new(0u32);
+
+            parallel_for_each(
+                UglyIterator(n + 1),
+                |_worker_id| -> Result<(), NoError> { Ok(()) },
+                |_state, i| -> Result<(), NoError> {
+                    (*sum.lock().unwrap()) += i;
+                    Ok(())
+                },
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count).unwrap();
+
+            assert_eq!((*sum.lock().unwrap()), n);
         }
     }
 }

@@ -20,3 +20,4 @@ snafu = "0.6.2"
 
 [dev-dependencies]
 proptest = "0.9.5"
+panic-control = "0.1.4"
