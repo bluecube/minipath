@@ -20,7 +20,7 @@ pub enum WorkerCount {
 }
 
 #[derive(Debug)]
-pub enum ParallelForError<Ei, Ew, Eb>
+pub enum ParallelForEachError<Ei, Ew, Eb>
 where
     Ei: ErrorSource,
     Ew: ErrorSource,
@@ -31,7 +31,7 @@ where
     BackgroundTaskError { source: Eb },
 }
 
-impl<Ei, Ew, Eb> std::fmt::Display for ParallelForError<Ei, Ew, Eb>
+impl<Ei, Ew, Eb> std::fmt::Display for ParallelForEachError<Ei, Ew, Eb>
 where
     Ei: ErrorSource,
     Ew: ErrorSource,
@@ -46,7 +46,7 @@ where
     }
 }
 
-impl<Ei, Ew, Eb> std::error::Error for ParallelForError<Ei, Ew, Eb>
+impl<Ei, Ew, Eb> std::error::Error for ParallelForEachError<Ei, Ew, Eb>
 where
     Ei: ErrorSource,
     Ew: ErrorSource,
@@ -73,7 +73,7 @@ pub fn parallel_for_each<It, Fi, Fw, Fb, Ei, Ew, Eb, State>(
     worker_fun: Fw,
     background_fun: Fb,
     worker_count: WorkerCount,
-) -> Result<(), ParallelForError<Ei, Ew, Eb>>
+) -> Result<(), ParallelForEachError<Ei, Ew, Eb>>
 where
     It: Iterator + Send,
     Fi: Fn(usize) -> Result<State, Ei> + Sync + Send,
@@ -95,14 +95,14 @@ where
     let init_fun = &init_fun;
     let worker_fun = &worker_fun;
 
-    crossbeam_utils::thread::scope(|scope| -> Result<(), ParallelForError<Ei, Ew, Eb>> {
+    crossbeam_utils::thread::scope(|scope| -> Result<(), ParallelForEachError<Ei, Ew, Eb>> {
         let handles = (0..worker_count).map(|worker_id| {
-            scope.spawn(move |_| -> Result<(), ParallelForError<Ei, Ew, Eb>> {
+            scope.spawn(move |_| -> Result<(), ParallelForEachError<Ei, Ew, Eb>> {
                 defer! {
                     (*iterator.lock().unwrap()).kill(); // Stop all threads if we're running out from the loop (even when panicking)
                 }
                 let mut state = init_fun(worker_id)
-                    .map_err(|source| ParallelForError::InitTaskError{source})?;
+                    .map_err(|source| ParallelForEachError::InitTaskError{source})?;
 
                 #[allow(clippy::while_let_loop)]
                 loop {
@@ -117,7 +117,7 @@ where
                         }
                     };
                     worker_fun(&mut state, item)
-                        .map_err(|source| ParallelForError::WorkerTaskError{source})?;
+                        .map_err(|source| ParallelForEachError::WorkerTaskError{source})?;
                 };
 
                 Ok(())
@@ -126,7 +126,7 @@ where
         let background_result = background_fun()
             .map_err(|source| {
                 (*iterator.lock().unwrap()).kill();
-                ParallelForError::BackgroundTaskError { source }
+                ParallelForEachError::BackgroundTaskError { source }
             })?;
 
         match background_result {
@@ -440,7 +440,7 @@ mod test {
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
                 worker_count);
 
-            if let Err(ParallelForError::InitTaskError{..}) = result {}
+            if let Err(ParallelForEachError::InitTaskError{..}) = result {}
             else {
                 panic!("We didn't get the right error");
             }
@@ -467,7 +467,7 @@ mod test {
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
                 worker_count);
 
-            if let Err(ParallelForError::WorkerTaskError{..}) = result {}
+            if let Err(ParallelForEachError::WorkerTaskError{..}) = result {}
             else {
                 panic!("We didn't get the right error");
             }
@@ -490,7 +490,7 @@ mod test {
                 || -> Result<_, String> { Err("None shall pass!".to_string()) },
                 worker_count);
 
-            if let Err(ParallelForError::BackgroundTaskError{..}) = result {}
+            if let Err(ParallelForEachError::BackgroundTaskError{..}) = result {}
             else {
                 panic!("We didn't get the right error");
             }
