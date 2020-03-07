@@ -39,9 +39,9 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::InitTaskError { source: _ } => write!(f, "Init task failed"),
-            Self::WorkerTaskError { source: _ } => write!(f, "Worker task failed"),
-            Self::BackgroundTaskError { source: _ } => write!(f, "Background task failed"),
+            Self::InitTaskError { .. } => write!(f, "Init task failed"),
+            Self::WorkerTaskError { .. } => write!(f, "Worker task failed"),
+            Self::BackgroundTaskError { .. } => write!(f, "Background task failed"),
         }
     }
 }

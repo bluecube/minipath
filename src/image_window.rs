@@ -27,7 +27,7 @@ pub struct ImageWindow {
 impl ImageWindow {
     /// Creates a SDL window.
     /// There can be only one!
-    pub fn new<'a>(title: &str, width: u32, height: u32) -> Result<ImageWindow, AnyError> {
+    pub fn new(title: &str, width: u32, height: u32) -> Result<ImageWindow, AnyError> {
         let context = sdl2::init()?;
         let event = context.event()?;
 
