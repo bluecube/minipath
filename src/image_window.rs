@@ -1,3 +1,4 @@
+use crate::image_buffer;
 use crate::screen_block;
 
 use image;
@@ -26,7 +27,7 @@ pub struct ImageWindow {
 impl ImageWindow {
     /// Creates a SDL window.
     /// There can be only one!
-    pub fn new(title: &str, width: u32, height: u32) -> Result<ImageWindow, AnyError> {
+    pub fn new<'a>(title: &str, width: u32, height: u32) -> Result<ImageWindow, AnyError> {
         let context = sdl2::init()?;
         let event = context.event()?;
 
@@ -42,10 +43,16 @@ impl ImageWindow {
             img: sync::Mutex::new(image::ImageBuffer::<PixelType, _>::new(width, height)),
         })
     }
+}
+
+impl<'a> image_buffer::ImageBuffer<'a> for ImageWindow {
+    type Writer = Writer<'a>;
+    type RunError = AnyError;
+    type SaveError = image::error::ImageError;
 
     /// Runs SDL event loop and handles the window.
     /// Only exits when the window is closed.
-    pub fn run(&self) -> SimpleResult {
+    fn run(&self) -> SimpleResult {
         let video = self.context.video()?;
         let mut canvas = video
             .window(&self.title, self.size.width, self.size.height)
@@ -64,7 +71,7 @@ impl ImageWindow {
         )?;
         texture.set_blend_mode(sdl2::render::BlendMode::Blend);
 
-        self.update_texture(&mut texture, self.size.into())?; // Copy the empty output to texture
+        update_texture(&*self.img.lock().unwrap(), &mut texture, self.size.into())?; // Copy the empty output to texture
 
         let mut events = self.context.event_pump()?;
 
@@ -91,7 +98,7 @@ impl ImageWindow {
                 _ => {
                     if let Some(rendered) = event.as_user_event_type::<screen_block::ScreenBlock>()
                     {
-                        self.update_texture(&mut texture, rendered)?;
+                        update_texture(&*self.img.lock().unwrap(), &mut texture, rendered)?;
                         redraw(&mut canvas, &texture)?;
                     }
                 }
@@ -101,65 +108,82 @@ impl ImageWindow {
     }
 
     /// Creates a writer function that can write data into the window from different thread.
-    pub fn make_writer(
-        &self,
-    ) -> impl Fn(screen_block::ScreenBlock, image::RgbaImage) -> SimpleResult + '_ {
-        let event_sender = self.event.event_sender();
-        let img = &self.img;
-        move |block, block_buffer| {
-            debug_assert_eq!(block_buffer.width(), block.width());
-            debug_assert_eq!(block_buffer.height(), block.width());
-
-            (*img.lock().unwrap()).copy_from(&block_buffer, block.min.x, block.min.y)?;
-            event_sender.push_custom_event(block)?;
-
-            Ok(())
+    fn make_writer(&'a self) -> Self::Writer {
+        Writer {
+            event_sender: self.event.event_sender(),
+            img: &self.img,
         }
     }
 
-    /// Copies a block from the image to the texture (to the gpu).
-    fn update_texture(
+    fn save(&self, path: &std::path::Path) -> Result<(), Self::SaveError> {
+        (*self.img.lock().unwrap()).save(path)?;
+        Ok(())
+    }
+}
+
+pub struct Writer<'a> {
+    event_sender: sdl2::event::EventSender,
+    img: &'a std::sync::Mutex<image::RgbaImage>,
+}
+
+impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
+    type WriteError = AnyError;
+
+    fn write(
         &self,
-        texture: &mut sdl2::render::Texture,
         block: screen_block::ScreenBlock,
-    ) -> SimpleResult {
-        let img = self.img.lock().unwrap();
+        block_buffer: image::RgbaImage,
+    ) -> Result<(), Self::WriteError> {
+        debug_assert_eq!(block_buffer.width(), block.width());
+        debug_assert_eq!(block_buffer.height(), block.width());
 
-        let rect = sdl2::rect::Rect::new(
-            block.min.x as i32,
-            block.min.y as i32,
-            block.width(),
-            block.height(),
-        );
-
-        texture.with_lock(
-            Some(rect),
-            |texture_buffer: &mut [u8], pitch: usize| -> SimpleResult {
-                // Obtain view to the part of the texture that we are updating.
-                let mut texture_samples = image::flat::FlatSamples {
-                    samples: texture_buffer,
-                    layout: image::flat::SampleLayout {
-                        channels: 4,       // There is no place to get this value programatically
-                        channel_stride: 1, // There is no place to get this value programatically
-                        width: block.width(),
-                        width_stride: SDL_PIXEL_FORMAT.byte_size_per_pixel(),
-                        height: block.height(),
-                        height_stride: pitch,
-                    },
-                    color_hint: None,
-                };
-                let mut texture_view = texture_samples.as_view_mut::<PixelType>().unwrap();
-                texture_view.copy_from(
-                    &(*img).view(block.min.x, block.min.y, block.width(), block.height()),
-                    0,
-                    0,
-                )?;
-                Ok(())
-            },
-        )??;
+        (*self.img.lock().unwrap()).copy_from(&block_buffer, block.min.x, block.min.y)?;
+        self.event_sender.push_custom_event(block)?;
 
         Ok(())
     }
+}
+
+/// Copies a block from the image to the texture (to the gpu).
+fn update_texture(
+    img: &image::RgbaImage,
+    texture: &mut sdl2::render::Texture,
+    block: screen_block::ScreenBlock,
+) -> SimpleResult {
+    let rect = sdl2::rect::Rect::new(
+        block.min.x as i32,
+        block.min.y as i32,
+        block.width(),
+        block.height(),
+    );
+
+    texture.with_lock(
+        Some(rect),
+        |texture_buffer: &mut [u8], pitch: usize| -> SimpleResult {
+            // Obtain view to the part of the texture that we are updating.
+            let mut texture_samples = image::flat::FlatSamples {
+                samples: texture_buffer,
+                layout: image::flat::SampleLayout {
+                    channels: 4,       // There is no place to get this value programatically
+                    channel_stride: 1, // There is no place to get this value programatically
+                    width: block.width(),
+                    width_stride: SDL_PIXEL_FORMAT.byte_size_per_pixel(),
+                    height: block.height(),
+                    height_stride: pitch,
+                },
+                color_hint: None,
+            };
+            let mut texture_view = texture_samples.as_view_mut::<PixelType>().unwrap();
+            texture_view.copy_from(
+                &(*img).view(block.min.x, block.min.y, block.width(), block.height()),
+                0,
+                0,
+            )?;
+            Ok(())
+        },
+    )??;
+
+    Ok(())
 }
 
 /// Completely redraws the canvas, puts a checkerboard behind and draws the texture on top.

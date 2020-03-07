@@ -1,8 +1,11 @@
 #![feature(specialization)]
 
-mod image_window;
 mod parallel_for_each;
 mod screen_block;
+
+mod image_buffer;
+mod image_file_buffer;
+mod image_window;
 
 use screen_block::ScreenBlockExt;
 
@@ -16,6 +19,9 @@ fn run_all(
     output: image_window::ImageWindow,
     block_iterator: screen_block::SpiralChunks,
 ) -> SimpleResult {
+    use image_buffer::ImageBuffer;
+    use image_buffer::ImageBufferWriter;
+
     let output_writer = output.make_writer();
 
     parallel_for_each::parallel_for_each(
@@ -24,9 +30,10 @@ fn run_all(
         |_buffer, block| -> Result<_, AnyError> {
             // Pretend to render a block
             use rand::Rng;
+
             let mut rng = rand::thread_rng();
             std::thread::sleep(std::time::Duration::from_millis(rng.gen_range(500, 2000)));
-            output_writer(
+            output_writer.write(
                 block,
                 image::RgbaImage::from_pixel(
                     50,
