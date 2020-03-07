@@ -96,10 +96,10 @@ where
     let worker_fun = &worker_fun;
 
     crossbeam_utils::thread::scope(|scope| -> Result<(), ParallelForError<Ei, Ew, Eb>> {
-        for worker_id in 0..worker_count {
+        let handles = (0..worker_count).map(|worker_id| {
             scope.spawn(move |_| -> Result<(), ParallelForError<Ei, Ew, Eb>> {
                 defer! {
-                    (*iterator.lock().unwrap()).kill(); // Stop all threads if we're running out from the loop
+                    (*iterator.lock().unwrap()).kill(); // Stop all threads if we're running out from the loop (even when panicking)
                 }
                 let mut state = init_fun(worker_id)
                     .map_err(|source| ParallelForError::InitTaskError{source})?;
@@ -121,8 +121,8 @@ where
                 };
 
                 Ok(())
-            });
-        }
+            })
+        }).collect::<Vec<_>>();
         let background_result = background_fun()
             .map_err(|source| {
                 (*iterator.lock().unwrap()).kill();
@@ -134,9 +134,14 @@ where
             Continue::Stop => (*iterator.lock().unwrap()).kill(),
         };
 
+        for handle in handles {
+            handle.join().unwrap()?;
+        }
+
+
         Ok(())
     })
-    .unwrap() // Propagate panics from workers
+    .unwrap() // We have already propagated panics
     ?;
 
     Ok(())
@@ -207,8 +212,8 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use proptest::prelude::*;
     use panic_control;
+    use proptest::prelude::*;
 
     fn worker_count_strategy() -> impl Strategy<Value = WorkerCount> {
         prop_oneof![
@@ -216,9 +221,6 @@ mod test {
             (1..32usize).prop_map(|n| WorkerCount::Manual(NonZeroUsize::new(n).unwrap())),
         ]
     }
-
-    // TODO:
-    // Error propagation (3 tests)
 
     proptest! {
         // Checks that each worker has the same thread id as the state
@@ -284,7 +286,7 @@ mod test {
         }
 
         /// Checks that the jobs are actually running in different threads by
-        /// blocking as many threads as there are 
+        /// blocking as many threads as there are workers.
         #[test]
         fn actual_threads(worker_count in 1..10usize) {
             let count_waiting = std::sync::Mutex::new(0usize);
@@ -415,6 +417,83 @@ mod test {
                 worker_count).unwrap();
 
             assert_eq!((*sum.lock().unwrap()), n);
+        }
+
+        /// Checks that the iteration stops when background function returns Stop.
+        #[test]
+        fn error_from_init(worker_count in worker_count_strategy()) {
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+
+            let result = parallel_for_each(
+                0..,
+                |worker_id| -> Result<(), String> {
+                    if worker_id == 0 {
+                        Err("None shall pass!".to_string())
+                    } else {
+                        Ok(())
+                    }
+                },
+                |_state, _i| -> Result<(), NoError> {
+                    assert!(std::time::Instant::now() < end);
+                    Ok(())
+                },
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count);
+
+            if let Err(ParallelForError::InitTaskError{..}) = result {}
+            else {
+                panic!("We didn't get the right error");
+            }
+        }
+
+        /// Checks that the iteration stops when background function returns Stop.
+        #[test]
+        fn error_from_worker(worker_count in worker_count_strategy(), n in 0..100u32) {
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+
+            let result = parallel_for_each(
+                0..,
+                |_worker_id| -> Result<(), NoError> {
+                    Ok(())
+                },
+                |_state, i| -> Result<(), String> {
+                    assert!(std::time::Instant::now() < end);
+                    if i == n {
+                        Err("None shall pass!".to_string())
+                    } else {
+                        Ok(())
+                    }
+                },
+                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                worker_count);
+
+            if let Err(ParallelForError::WorkerTaskError{..}) = result {}
+            else {
+                panic!("We didn't get the right error");
+            }
+        }
+
+        /// Checks that the iteration stops when background function returns Stop.
+        #[test]
+        fn error_from_background(worker_count in worker_count_strategy()) {
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+
+            let result = parallel_for_each(
+                0..,
+                |_worker_id| -> Result<(), NoError> {
+                    Ok(())
+                },
+                |_state, _i| -> Result<(), NoError> {
+                    assert!(std::time::Instant::now() < end);
+                    Ok(())
+                },
+                || -> Result<_, String> { Err("None shall pass!".to_string()) },
+                worker_count);
+
+            if let Err(ParallelForError::BackgroundTaskError{..}) = result {}
+            else {
+                panic!("We didn't get the right error");
+            }
         }
     }
 }
