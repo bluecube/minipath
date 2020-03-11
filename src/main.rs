@@ -1,10 +1,12 @@
 #![feature(specialization)]
 
+mod util;
 mod parallel_for_each;
 mod screen_block;
 
 mod image_buffer;
 mod image_file_buffer;
+#[cfg(feature = "gui")]
 mod image_window;
 
 use screen_block::ScreenBlockExt;
@@ -12,22 +14,23 @@ use screen_block::ScreenBlockExt;
 use euclid;
 use rand;
 
-type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
-type SimpleResult = Result<(), AnyError>;
+#[cfg(feature = "gui")]
+fn make_output(w: u32, h: u32) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
+    Ok(Box::new(image_window::ImageWindow::new("minipath", w, h)?))
+}
 
-fn run_all(
-    output: image_window::ImageWindow,
-    block_iterator: screen_block::SpiralChunks,
-) -> SimpleResult {
-    use image_buffer::ImageBuffer;
-    use image_buffer::ImageBufferWriter;
+#[cfg(not(feature = "gui"))]
+fn make_output(w: u32, h: u32) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
+    Ok(Box::new(image_file_buffer::ImageFileBuffer::new(w, h)))
+}
 
+fn run_all(output: Box<dyn image_buffer::ImageBuffer>, block_iterator: screen_block::SpiralChunks) -> util::SimpleResult {
     let output_writer = output.make_writer();
 
     parallel_for_each::parallel_for_each(
         block_iterator,
         |_worker_id| -> Result<_, parallel_for_each::NoError> { Ok(image::RgbaImage::new(50, 50)) },
-        |_buffer, block| -> Result<_, AnyError> {
+        |_buffer, block| -> util::SimpleResult<_> {
             // Pretend to render a block
             use rand::Rng;
 
@@ -49,7 +52,7 @@ fn run_all(
 
             Ok(())
         },
-        || -> Result<_, AnyError> {
+        || -> util::SimpleResult<_> {
             output.run()?;
             Ok(parallel_for_each::Continue::Stop)
         },
@@ -59,8 +62,8 @@ fn run_all(
     Ok(())
 }
 
-fn main() -> SimpleResult {
-    let w = image_window::ImageWindow::new("minipath", 800, 600)?;
+fn main() -> util::SimpleResult {
+    let w = make_output(800, 600)?;
     run_all(w, euclid::rect(0, 0, 800, 600).to_box2d().spiral_chunks(50))?;
     Ok(())
 }

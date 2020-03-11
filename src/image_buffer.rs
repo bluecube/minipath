@@ -1,26 +1,32 @@
 use crate::screen_block;
+use crate::util;
 
 /// Trait for an image buffer that can be accessed from multiple threads
-pub trait ImageBuffer<'a> {
-    type RunError;
-    type SaveError;
-    type Writer: ImageBufferWriter;
-
+pub trait ImageBuffer {
     /// Runs event loop belonging to this image, if necessary.
-    fn run(&self) -> Result<(), Self::RunError>;
+    fn run(&self) -> util::SimpleResult;
 
     /// Creates a writer function that can write data into the image from different thread.
-    fn make_writer(&'a self) -> Self::Writer;
+    fn make_writer<'a>(&'a self) -> Box<dyn ImageBufferWriter + 'a>;
 
     /// Saves the content of the buffer to a file
-    fn save(&self, path: &std::path::Path) -> Result<(), Self::SaveError>;
+    fn save(&self, path: &std::path::Path) -> util::SimpleResult;
 }
 
 pub trait ImageBufferWriter: Sync + Send {
-    type WriteError: Send;
     fn write(
         &self,
         block: screen_block::ScreenBlock,
         block_buffer: image::RgbaImage,
-    ) -> Result<(), Self::WriteError>;
+    ) -> util::SimpleResult;
+}
+
+/// This is an implementation of the unit tests that is shared for all impls of
+/// this trait. That's why the test mod is public and there is no actual #[test] inside.
+#[cfg(test)]
+pub mod test {
+    use super::*;
+
+    /// Tests that the buffer correctly reconstruct an image from small writes
+    fn test_image_buffer() {}
 }

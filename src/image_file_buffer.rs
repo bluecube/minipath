@@ -1,5 +1,6 @@
 use crate::image_buffer;
 use crate::screen_block;
+use crate::util;
 
 use image;
 use std::sync;
@@ -20,21 +21,17 @@ impl ImageFileBuffer {
     }
 }
 
-impl<'a> image_buffer::ImageBuffer<'a> for ImageFileBuffer {
-    type Writer = Writer<'a>;
-    type RunError = ();
-    type SaveError = image::error::ImageError;
-
-    fn run(&self) -> Result<(), Self::RunError> {
+impl image_buffer::ImageBuffer for ImageFileBuffer {
+    fn run(&self) -> util::SimpleResult {
         Ok(())
     }
 
     /// Creates a writer function that can write data into the window from different thread.
-    fn make_writer(&'a self) -> Writer<'a> {
-        Writer(&self.img)
+    fn make_writer<'a>(&'a self) -> Box<dyn image_buffer::ImageBufferWriter+ 'a> {
+        Box::new(Writer(&self.img))
     }
 
-    fn save(&self, path: &std::path::Path) -> Result<(), Self::SaveError> {
+    fn save(&self, path: &std::path::Path) -> util::SimpleResult {
         (*self.img.lock().unwrap()).save(path)?;
         Ok(())
     }
@@ -43,13 +40,11 @@ impl<'a> image_buffer::ImageBuffer<'a> for ImageFileBuffer {
 pub struct Writer<'a>(&'a sync::Mutex<image::RgbaImage>);
 
 impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
-    type WriteError = image::error::ImageError;
-
     fn write(
         &self,
         block: screen_block::ScreenBlock,
         block_buffer: image::RgbaImage,
-    ) -> Result<(), Self::WriteError> {
+    ) -> util::SimpleResult {
         debug_assert_eq!(block_buffer.width(), block.width());
         debug_assert_eq!(block_buffer.height(), block.width());
 

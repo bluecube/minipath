@@ -1,5 +1,6 @@
 use crate::image_buffer;
 use crate::screen_block;
+use crate::util;
 
 use image;
 use sdl2;
@@ -10,9 +11,6 @@ use image::GenericImageView;
 
 const SDL_PIXEL_FORMAT: sdl2::pixels::PixelFormatEnum = sdl2::pixels::PixelFormatEnum::ABGR8888;
 type PixelType = image::Rgba<u8>;
-
-type AnyError = Box<dyn std::error::Error + Send + Sync + 'static>;
-type SimpleResult = Result<(), AnyError>;
 
 pub struct ImageWindow {
     title: String,
@@ -27,7 +25,7 @@ pub struct ImageWindow {
 impl ImageWindow {
     /// Creates a SDL window.
     /// There can be only one!
-    pub fn new(title: &str, width: u32, height: u32) -> Result<ImageWindow, AnyError> {
+    pub fn new(title: &str, width: u32, height: u32) -> util::SimpleResult<ImageWindow> {
         let context = sdl2::init()?;
         let event = context.event()?;
 
@@ -45,14 +43,10 @@ impl ImageWindow {
     }
 }
 
-impl<'a> image_buffer::ImageBuffer<'a> for ImageWindow {
-    type Writer = Writer<'a>;
-    type RunError = AnyError;
-    type SaveError = image::error::ImageError;
-
+impl image_buffer::ImageBuffer for ImageWindow {
     /// Runs SDL event loop and handles the window.
     /// Only exits when the window is closed.
-    fn run(&self) -> SimpleResult {
+    fn run(&self) -> util::SimpleResult {
         let video = self.context.video()?;
         let mut canvas = video
             .window(&self.title, self.size.width, self.size.height)
@@ -108,14 +102,14 @@ impl<'a> image_buffer::ImageBuffer<'a> for ImageWindow {
     }
 
     /// Creates a writer function that can write data into the window from different thread.
-    fn make_writer(&'a self) -> Self::Writer {
-        Writer {
+    fn make_writer<'a>(&'a self) -> Box<dyn image_buffer::ImageBufferWriter + 'a> {
+        Box::new(Writer {
             event_sender: self.event.event_sender(),
             img: &self.img,
-        }
+        })
     }
 
-    fn save(&self, path: &std::path::Path) -> Result<(), Self::SaveError> {
+    fn save(&self, path: &std::path::Path) -> util::SimpleResult {
         (*self.img.lock().unwrap()).save(path)?;
         Ok(())
     }
@@ -127,13 +121,11 @@ pub struct Writer<'a> {
 }
 
 impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
-    type WriteError = AnyError;
-
     fn write(
         &self,
         block: screen_block::ScreenBlock,
         block_buffer: image::RgbaImage,
-    ) -> Result<(), Self::WriteError> {
+    ) -> util::SimpleResult {
         debug_assert_eq!(block_buffer.width(), block.width());
         debug_assert_eq!(block_buffer.height(), block.width());
 
@@ -149,7 +141,7 @@ fn update_texture(
     img: &image::RgbaImage,
     texture: &mut sdl2::render::Texture,
     block: screen_block::ScreenBlock,
-) -> SimpleResult {
+) -> util::SimpleResult {
     let rect = sdl2::rect::Rect::new(
         block.min.x as i32,
         block.min.y as i32,
@@ -159,7 +151,7 @@ fn update_texture(
 
     texture.with_lock(
         Some(rect),
-        |texture_buffer: &mut [u8], pitch: usize| -> SimpleResult {
+        |texture_buffer: &mut [u8], pitch: usize| -> util::SimpleResult {
             // Obtain view to the part of the texture that we are updating.
             let mut texture_samples = image::flat::FlatSamples {
                 samples: texture_buffer,
@@ -190,7 +182,7 @@ fn update_texture(
 fn redraw(
     canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
     texture: &sdl2::render::Texture,
-) -> SimpleResult {
+) -> util::SimpleResult {
     draw_checkerboard(canvas)?;
     canvas.copy(texture, None, None)?;
     canvas.present();
@@ -199,7 +191,7 @@ fn redraw(
 }
 
 /// Clears the canvas with a checkerboard pattern.
-fn draw_checkerboard(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) -> SimpleResult {
+fn draw_checkerboard(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) -> util::SimpleResult {
     canvas.set_draw_color(sdl2::pixels::Color::RGB(50, 50, 50));
     canvas.clear();
     canvas.set_draw_color(sdl2::pixels::Color::RGB(200, 200, 200));
