@@ -494,13 +494,15 @@ mod test {
                 || helper.finished_callback(),
                 worker_count);
 
-            if let Err(ParallelForEachError::InitTaskError{ source }) = result {
-                assert_eq!(source, "None shall pass!");
+
+            match result {
+                Err(ParallelForEachError::InitTaskError{ source }) => {
+                    assert_eq!(source, "None shall pass!");
+                    assert!(helper.check_after());
+                },
+                Err(e) => panic!("We didn't get the right error ({})", e),
+                Ok(()) => panic!("We didn't get an error!"),
             }
-            else {
-                panic!("We didn't get the right error");
-            }
-            assert!(helper.check_after());
         }
 
         /// Checks that the iteration stops when background function returns Stop.
@@ -526,13 +528,14 @@ mod test {
                 || helper.finished_callback(),
                 worker_count);
 
-            if let Err(ParallelForEachError::WorkerTaskError{ source }) = result {
-                assert_eq!(source, "None shall pass!");
+            match result {
+                Err(ParallelForEachError::WorkerTaskError{ source }) => {
+                    assert_eq!(source, "None shall pass!");
+                    assert!(helper.check_after());
+                },
+                Err(e) => panic!("We didn't get the right error ({})", e),
+                Ok(()) => panic!("We didn't get an error!"),
             }
-            else {
-                panic!("We didn't get the right error");
-            }
-            assert!(helper.check_after());
         }
 
         /// Checks that the iteration stops when background function returns Stop.
@@ -551,13 +554,17 @@ mod test {
                 || helper.finished_callback(),
                 worker_count);
 
-            if let Err(ParallelForEachError::BackgroundTaskError{ source }) = result {
-                assert_eq!(source, "None shall pass!");
+            match result {
+                Err(ParallelForEachError::BackgroundTaskError{ source }) => {
+                    assert_eq!(source, "None shall pass!");
+                    assert!(helper.check_after());
+                },
+                Err(e) => panic!("We didn't get the right error ({})", e),
+                Ok(()) => panic!("We didn't get an error!"),
             }
-            else {
-                panic!("We didn't get the right error");
-            }
-            assert!(helper.check_after());
         }
     }
+
+    // TODO: Panic in functions still calls callback
+    // TODO: Panic in callback is propagated
 }
