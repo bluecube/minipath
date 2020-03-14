@@ -2,7 +2,6 @@ use crossbeam_utils;
 use num_cpus;
 use parking_lot;
 use scopeguard;
-use snafu::Snafu;
 
 use std::num::NonZeroUsize;
 
@@ -60,9 +59,6 @@ where
         }
     }
 }
-
-#[derive(Debug, Snafu)]
-pub enum NoError {}
 
 /// Runs a worker function for each item of an iterator in multiple threads.
 /// Allows a per-thread initialization function and a background function that runs in the main thread
@@ -263,12 +259,12 @@ mod test {
         fn stable_thread_id(worker_count in worker_count_strategy(), n in 0..1000u32) {
             parallel_for_each(
                 0..n,
-                |_worker_id| -> Result<_, NoError> { Ok(std::thread::current().id()) },
-                |state_thread_id, _i| -> Result<(), NoError> {
+                |_worker_id| -> Result<_, ()> { Ok(std::thread::current().id()) },
+                |state_thread_id, _i| -> Result<(), ()> {
                     assert_eq!(&std::thread::current().id(), state_thread_id);
                     Ok(())
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
                 || {},
                 worker_count).unwrap();
         }
@@ -317,12 +313,12 @@ mod test {
 
             parallel_for_each(
                 0..n,
-                |_worker_id| -> Result<_, NoError> { Ok(State { local_sum: 0, global_sum: &sum }) },
-                |state, i| -> Result<(), NoError> {
+                |_worker_id| -> Result<_, ()> { Ok(State { local_sum: 0, global_sum: &sum }) },
+                |state, i| -> Result<(), ()> {
                     state.local_sum += i;
                     Ok(())
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
                 || {},
                 worker_count).unwrap();
 
@@ -362,8 +358,8 @@ mod test {
                         Err("wtf?".into())
                     }
                 },
-                |_state, _i| -> Result<(), NoError> { Ok(()) },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                |_state, _i| -> Result<(), ()> { Ok(()) },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
                 || {},
                 WorkerCount::Manual(NonZeroUsize::new(worker_count).unwrap())).unwrap();
 
@@ -397,12 +393,12 @@ mod test {
         fn propagates_panics_init(worker_count in worker_count_strategy(), n in 0..1000u32) {
             parallel_for_each(
                 0..n,
-                |_worker_id| -> Result<(), NoError> {
+                |_worker_id| -> Result<(), ()> {
                     panic_control::disable_hook_in_current_thread();
                     panic!("Don't panic!");
                 },
-                |_state, _i| -> Result<(), NoError> { Ok(()) },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                |_state, _i| -> Result<(), ()> { Ok(()) },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
                 || {},
                 worker_count).unwrap();
         }
@@ -413,14 +409,14 @@ mod test {
         fn propagates_panics_worker(worker_count in worker_count_strategy(), n in 0..1000u32) {
             parallel_for_each(
                 0..n,
-                |_worker_id| -> Result<(), NoError> {
+                |_worker_id| -> Result<(), ()> {
                     panic_control::disable_hook_in_current_thread();
                     Ok(())
                 },
-                |_state, _i| -> Result<(), NoError> {
+                |_state, _i| -> Result<(), ()> {
                     panic!("Don't panic!");
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
                 || {},
                 worker_count).unwrap();
         }
@@ -431,9 +427,9 @@ mod test {
         fn propagates_panics_background(worker_count in worker_count_strategy(), n in 0..1000u32) {
             parallel_for_each(
                 0..n,
-                |_worker_id| -> Result<(), NoError> { Ok(()) },
-                |_state, _i| -> Result<(), NoError> { Ok(()) },
-                || -> Result<_, NoError> { panic!("Don't panic!"); },
+                |_worker_id| -> Result<(), ()> { Ok(()) },
+                |_state, _i| -> Result<(), ()> { Ok(()) },
+                || -> Result<_, ()> { panic!("Don't panic!"); },
                 || {},
                 worker_count).unwrap();
         }
@@ -463,12 +459,12 @@ mod test {
 
             parallel_for_each(
                 UglyIterator(n + 1),
-                |_worker_id| -> Result<(), NoError> { Ok(()) },
-                |_state, i| -> Result<(), NoError> {
+                |_worker_id| -> Result<(), ()> { Ok(()) },
+                |_state, i| -> Result<(), ()> {
                     sum.fetch_add(i, Ordering::Relaxed);
                     Ok(())
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
                 || {},
                 worker_count).unwrap();
 

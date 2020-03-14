@@ -32,7 +32,7 @@ fn run_all(
 
     parallel_for_each::parallel_for_each(
         block_iterator,
-        |_worker_id| -> Result<_, parallel_for_each::NoError> { Ok(image::RgbaImage::new(50, 50)) },
+        |_worker_id| -> Result<_, util::NoError> { Ok(image::RgbaImage::new(50, 50)) },
         |_buffer, block| -> util::SimpleResult<_> {
             // Pretend to render a block
             use rand::Rng;
