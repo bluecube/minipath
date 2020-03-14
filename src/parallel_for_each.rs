@@ -208,8 +208,8 @@ mod test {
     use super::*;
     use panic_control;
     use proptest::prelude::*;
-    use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
-    use std::time::{Instant, Duration};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::time::{Duration, Instant};
 
     const TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -251,7 +251,6 @@ mod test {
             self.finished.load(Ordering::Relaxed)
         }
     }
-
 
     proptest! {
         // Checks that each worker has the same thread id as the state
