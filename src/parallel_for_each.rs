@@ -233,7 +233,7 @@ mod test {
             }
         }
 
-        fn check(&self) -> Result<(), String> {
+        fn workers_running_check(&self) -> Result<(), String> {
             if self.finished.load(Ordering::Relaxed) {
                 Err("Thread is running even though the end callback was encountered".into())
             } else if Instant::now() > self.latest_end_time {
@@ -277,14 +277,13 @@ mod test {
 
             parallel_for_each(
                 0..n,
-                |_worker_id| helper.check(),
+                |_worker_id| helper.workers_running_check(),
                 |_state, i| -> Result<(), String> {
-                    helper.check()?;
+                    helper.workers_running_check()?;
                     sum.fetch_add(i, Ordering::Relaxed);
                     Ok(())
                 },
-                || -> Result<_, String> {
-                    helper.check()?;
+                || -> Result<_, ()> {
                     Ok(Continue::Continue)
                 },
                 || helper.finished_callback(),
@@ -374,10 +373,12 @@ mod test {
 
             parallel_for_each(
                 0..,
-                |_worker_id| helper.check(),
-                |_state, _i| helper.check(),
+                |_worker_id| helper.workers_running_check(),
+                |_state, _i| helper.workers_running_check(),
                 || -> Result<_, String> {
-                    helper.check()?;
+                    // Here we can check that the threads have not finished yet, because the
+                    // iterator is infinite and only waiting for this method to return
+                    helper.workers_running_check()?;
                     Ok(Continue::Stop)
                 },
                 || {
@@ -479,16 +480,15 @@ mod test {
             let result = parallel_for_each(
                 0..,
                 |worker_id| -> Result<(), String> {
-                    helper.check()?;
+                    helper.workers_running_check()?;
                     if worker_id == 0 {
                         Err("None shall pass!".to_string())
                     } else {
                         Ok(())
                     }
                 },
-                |_state, _i| -> Result<(), String> { helper.check() },
-                || -> Result<_, String> {
-                    helper.check()?;
+                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
+                || -> Result<_, ()> {
                     Ok(Continue::Continue)
                 },
                 || helper.finished_callback(),
@@ -512,17 +512,16 @@ mod test {
 
             let result = parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), String> { helper.check() },
+                |_worker_id| -> Result<(), String> { helper.workers_running_check() },
                 |_state, i| -> Result<(), String> {
-                    helper.check()?;
+                    helper.workers_running_check()?;
                     if i == n {
                         Err("None shall pass!".to_string())
                     } else {
                         Ok(())
                     }
                 },
-                || -> Result<_, String> {
-                    helper.check()?;
+                || -> Result<_, ()> {
                     Ok(Continue::Continue)
                 },
                 || helper.finished_callback(),
@@ -545,10 +544,10 @@ mod test {
 
             let result = parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), String> { helper.check() },
-                |_state, _i| -> Result<(), String> { helper.check() },
+                |_worker_id| -> Result<(), String> { helper.workers_running_check() },
+                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
                 || -> Result<_, String> {
-                    helper.check()?;
+                    helper.workers_running_check()?;
                     Err("None shall pass!".to_string())
                 },
                 || helper.finished_callback(),
