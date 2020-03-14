@@ -65,7 +65,7 @@ where
 pub enum NoError {}
 
 /// Runs a worker function for each item of an iterator in multiple threads.
-/// Allows a per-thread init function and a background function that runs in the main thread
+/// Allows a per-thread initialization function and a background function that runs in the main thread
 /// while the workers are processing.
 pub fn parallel_for_each<It, Fi, Fw, Fb, Ff, Ei, Ew, Eb, State>(
     iterator: It,
@@ -212,6 +212,10 @@ mod test {
     use super::*;
     use panic_control;
     use proptest::prelude::*;
+    use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+    use std::time::{Instant, Duration};
+
+    const TIMEOUT: Duration = Duration::from_secs(2);
 
     fn worker_count_strategy() -> impl Strategy<Value = WorkerCount> {
         prop_oneof![
@@ -219,6 +223,39 @@ mod test {
             Just(WorkerCount::Auto),
         ]
     }
+
+    struct IterationCheckHelper {
+        finished: AtomicBool,
+        latest_end_time: Instant,
+    }
+
+    impl IterationCheckHelper {
+        fn new() -> IterationCheckHelper {
+            IterationCheckHelper {
+                finished: AtomicBool::new(false),
+                latest_end_time: Instant::now() + TIMEOUT,
+            }
+        }
+
+        fn check(&self) -> Result<(), String> {
+            if self.finished.load(Ordering::Relaxed) {
+                Err("Thread is running even though the end callback was encountered".into())
+            } else if Instant::now() > self.latest_end_time {
+                Err("Time limit exceeded".into())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn finished_callback(&self) {
+            self.finished.store(true, Ordering::Relaxed);
+        }
+
+        fn check_after(&self) -> bool {
+            self.finished.load(Ordering::Relaxed)
+        }
+    }
+
 
     proptest! {
         // Checks that each worker has the same thread id as the state
@@ -239,36 +276,42 @@ mod test {
         /// Sums a range using pralellel_for_each, checks that sum is as expected
         #[test]
         fn sum(worker_count in worker_count_strategy(), n in 0..1000u32) {
+            let helper = IterationCheckHelper::new();
             let sum = std::sync::atomic::AtomicU32::new(0);
 
             parallel_for_each(
                 0..n,
-                |_worker_id| -> Result<(), NoError> { Ok(()) },
-                |_state, i| -> Result<(), NoError> {
-                    sum.fetch_add(i, std::sync::atomic::Ordering::Relaxed);
+                |_worker_id| helper.check(),
+                |_state, i| -> Result<(), String> {
+                    helper.check()?;
+                    sum.fetch_add(i, Ordering::Relaxed);
                     Ok(())
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
-                || {},
+                || -> Result<_, String> {
+                    helper.check()?;
+                    Ok(Continue::Continue)
+                },
+                || helper.finished_callback(),
                 worker_count).unwrap();
 
-            assert_eq!(sum.load(std::sync::atomic::Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
+            assert!(helper.check_after());
+            assert_eq!(sum.load(Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
         }
 
         /// Sums a range using pralellel_for_each, keeping the partial sums in shared state, checks
         /// that sum is as expected
         #[test]
         fn sum_in_state(worker_count in worker_count_strategy(), n in 0..1000u32) {
-            let sum = std::sync::atomic::AtomicU32::new(0);
+            let sum = AtomicU32::new(0);
 
             struct State<'a> {
                 local_sum: u32,
-                global_sum: &'a std::sync::atomic::AtomicU32,
+                global_sum: &'a AtomicU32,
             }
 
             impl<'a> Drop for State<'a> {
                 fn drop(&mut self) {
-                    self.global_sum.fetch_add(self.local_sum, std::sync::atomic::Ordering::Relaxed);
+                    self.global_sum.fetch_add(self.local_sum, Ordering::Relaxed);
                 }
             }
 
@@ -283,7 +326,7 @@ mod test {
                 || {},
                 worker_count).unwrap();
 
-            assert_eq!(sum.load(std::sync::atomic::Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
+            assert_eq!(sum.load(Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
         }
 
         /// Checks that the jobs are actually running in different threads by
@@ -293,7 +336,7 @@ mod test {
             let count_waiting = std::sync::Mutex::new(0usize);
             let cond = std::sync::Condvar::new();
 
-            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let end = Instant::now() + TIMEOUT;
 
             parallel_for_each(
                 0..worker_count,
@@ -304,7 +347,7 @@ mod test {
                         cond.notify_all();
                         Ok(())
                     } else {
-                        while let Some(timeout) = end.checked_duration_since(std::time::Instant::now()) {
+                        while let Some(timeout) = end.checked_duration_since(Instant::now()) {
                             let result = cond.wait_timeout(
                                 count_waiting,
                                 timeout).unwrap();
@@ -327,24 +370,25 @@ mod test {
             assert_eq!(*count_waiting.lock().unwrap(), worker_count);
         }
 
-        /// Checks that the iteration stops when background function returns Stop.
+        /// Checks that the iteration stops when background function returns Stop and that finished
+        /// callback is correctly invoked.
         #[test]
         fn stop_from_background(worker_count in worker_count_strategy()) {
-            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let helper = IterationCheckHelper::new();
 
             parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), NoError> {
-                    panic_control::disable_hook_in_current_thread(); // Disable panic hookks to keep the output clean in case the test fails
-                    Ok(())
+                |_worker_id| helper.check(),
+                |_state, _i| helper.check(),
+                || -> Result<_, String> {
+                    helper.check()?;
+                    Ok(Continue::Stop)
                 },
-                |_state, _i| -> Result<(), NoError> {
-                    assert!(std::time::Instant::now() < end);
-                    Ok(())
+                || {
+                    helper.finished_callback();
                 },
-                || -> Result<_, NoError> { Ok(Continue::Stop) },
-                || {},
                 worker_count).unwrap();
+                assert!(helper.check_after());
         }
 
         /// Checks that panics from thread init function are propagated
@@ -394,6 +438,7 @@ mod test {
                 worker_count).unwrap();
         }
 
+        /// Tests that if iterator returns None once, it will stop the iteration completely
         #[test]
         fn ugly_iterator(worker_count in worker_count_strategy(), n in 0..1000u32) {
             struct UglyIterator(u32);
@@ -414,100 +459,109 @@ mod test {
                 }
             }
 
-            let sum = std::sync::Mutex::new(0u32);
+            let sum = AtomicU32::new(0);
 
             parallel_for_each(
                 UglyIterator(n + 1),
                 |_worker_id| -> Result<(), NoError> { Ok(()) },
                 |_state, i| -> Result<(), NoError> {
-                    (*sum.lock().unwrap()) += i;
+                    sum.fetch_add(i, Ordering::Relaxed);
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
                 || {},
                 worker_count).unwrap();
 
-            assert_eq!((*sum.lock().unwrap()), n);
+            assert_eq!(sum.load(Ordering::Relaxed), n);
         }
 
         /// Checks that the iteration stops when background function returns Stop.
         #[test]
         fn error_from_init(worker_count in worker_count_strategy()) {
-            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let helper = IterationCheckHelper::new();
 
             let result = parallel_for_each(
                 0..,
                 |worker_id| -> Result<(), String> {
+                    helper.check()?;
                     if worker_id == 0 {
                         Err("None shall pass!".to_string())
                     } else {
                         Ok(())
                     }
                 },
-                |_state, _i| -> Result<(), NoError> {
-                    assert!(std::time::Instant::now() < end);
-                    Ok(())
+                |_state, _i| -> Result<(), String> { helper.check() },
+                || -> Result<_, String> {
+                    helper.check()?;
+                    Ok(Continue::Continue)
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
-                || {},
+                || helper.finished_callback(),
                 worker_count);
 
-            if let Err(ParallelForEachError::InitTaskError{..}) = result {}
+            if let Err(ParallelForEachError::InitTaskError{ source }) = result {
+                assert_eq!(source, "None shall pass!");
+            }
             else {
                 panic!("We didn't get the right error");
             }
+            assert!(helper.check_after());
         }
 
         /// Checks that the iteration stops when background function returns Stop.
         #[test]
         fn error_from_worker(worker_count in worker_count_strategy(), n in 0..100u32) {
-            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let helper = IterationCheckHelper::new();
 
             let result = parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), NoError> {
-                    Ok(())
-                },
+                |_worker_id| -> Result<(), String> { helper.check() },
                 |_state, i| -> Result<(), String> {
-                    assert!(std::time::Instant::now() < end);
+                    helper.check()?;
                     if i == n {
                         Err("None shall pass!".to_string())
                     } else {
                         Ok(())
                     }
                 },
-                || -> Result<_, NoError> { Ok(Continue::Continue) },
-                || {},
+                || -> Result<_, String> {
+                    helper.check()?;
+                    Ok(Continue::Continue)
+                },
+                || helper.finished_callback(),
                 worker_count);
 
-            if let Err(ParallelForEachError::WorkerTaskError{..}) = result {}
+            if let Err(ParallelForEachError::WorkerTaskError{ source }) = result {
+                assert_eq!(source, "None shall pass!");
+            }
             else {
                 panic!("We didn't get the right error");
             }
+            assert!(helper.check_after());
         }
 
         /// Checks that the iteration stops when background function returns Stop.
         #[test]
         fn error_from_background(worker_count in worker_count_strategy()) {
-            let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let helper = IterationCheckHelper::new();
 
             let result = parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), NoError> {
-                    Ok(())
+                |_worker_id| -> Result<(), String> { helper.check() },
+                |_state, _i| -> Result<(), String> { helper.check() },
+                || -> Result<_, String> {
+                    helper.check()?;
+                    Err("None shall pass!".to_string())
                 },
-                |_state, _i| -> Result<(), NoError> {
-                    assert!(std::time::Instant::now() < end);
-                    Ok(())
-                },
-                || -> Result<_, String> { Err("None shall pass!".to_string()) },
-                || {},
+                || helper.finished_callback(),
                 worker_count);
 
-            if let Err(ParallelForEachError::BackgroundTaskError{..}) = result {}
+            if let Err(ParallelForEachError::BackgroundTaskError{ source }) = result {
+                assert_eq!(source, "None shall pass!");
+            }
             else {
                 panic!("We didn't get the right error");
             }
+            assert!(helper.check_after());
         }
     }
 }
