@@ -129,9 +129,9 @@ where
         let handles = (0..worker_count).map(|worker_id| {
             scope.spawn(move |_| -> Result<(), ParallelForEachError<Ei, Ew, Eb>> {
                 let mut state = scopeguard::guard(state.lock(), |mut state| {
-                    (*state).stop(); // Stop all threads if we're running out from the loop (even when panicking)
-                    (*state).threads_running -= 1;
-                    if (*state).threads_running == 0 {
+                    state.stop(); // Stop all threads if we're running out from the loop (even when panicking)
+                    state.threads_running -= 1;
+                    if state.threads_running == 0 {
                         parking_lot::lock_api::MutexGuard::unlocked(&mut state, || finished_callback());
                     }
                 });
@@ -153,7 +153,7 @@ where
         }).collect::<Vec<_>>();
 
         scopeguard::defer_on_unwind! {
-            (*state.lock()).stop()
+            state.lock().stop()
         }
 
         let background_result = background_fun()
@@ -239,36 +239,36 @@ mod test {
         /// Sums a range using pralellel_for_each, checks that sum is as expected
         #[test]
         fn sum(worker_count in worker_count_strategy(), n in 0..1000u32) {
-            let sum = std::sync::Mutex::new(0u32);
+            let sum = std::sync::atomic::AtomicU32::new(0);
 
             parallel_for_each(
                 0..n,
                 |_worker_id| -> Result<(), NoError> { Ok(()) },
                 |_state, i| -> Result<(), NoError> {
-                    (*sum.lock().unwrap()) += i;
+                    sum.fetch_add(i, std::sync::atomic::Ordering::Relaxed);
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
                 || {},
                 worker_count).unwrap();
 
-            assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
+            assert_eq!(sum.load(std::sync::atomic::Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
         }
 
         /// Sums a range using pralellel_for_each, keeping the partial sums in shared state, checks
         /// that sum is as expected
         #[test]
         fn sum_in_state(worker_count in worker_count_strategy(), n in 0..1000u32) {
-            let sum = std::sync::Mutex::new(0u32);
+            let sum = std::sync::atomic::AtomicU32::new(0);
 
             struct State<'a> {
                 local_sum: u32,
-                global_sum: &'a std::sync::Mutex<u32>,
+                global_sum: &'a std::sync::atomic::AtomicU32,
             }
 
             impl<'a> Drop for State<'a> {
                 fn drop(&mut self) {
-                    (*self.global_sum.lock().unwrap()) += self.local_sum;
+                    self.global_sum.fetch_add(self.local_sum, std::sync::atomic::Ordering::Relaxed);
                 }
             }
 
@@ -283,7 +283,7 @@ mod test {
                 || {},
                 worker_count).unwrap();
 
-            assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
+            assert_eq!(sum.load(std::sync::atomic::Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
         }
 
         /// Checks that the jobs are actually running in different threads by
