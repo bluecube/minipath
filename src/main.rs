@@ -56,6 +56,9 @@ fn run_all(output: Box<dyn image_buffer::ImageBuffer>, block_iterator: screen_bl
             output.run()?;
             Ok(parallel_for_each::Continue::Stop)
         },
+        || {
+            // TODO: Notify the background task that we are finished
+        },
         parallel_for_each::WorkerCount::Auto,
     )?;
 

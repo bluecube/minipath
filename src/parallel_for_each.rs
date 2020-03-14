@@ -1,10 +1,10 @@
 use crossbeam_utils;
 use num_cpus;
+use parking_lot;
+use scopeguard;
+use snafu::Snafu;
 
 use std::num::NonZeroUsize;
-
-use scopeguard::defer;
-use snafu::Snafu;
 
 #[must_use]
 #[derive(Copy, Clone, Debug)]
@@ -67,11 +67,12 @@ pub enum NoError {}
 /// Runs a worker function for each item of an iterator in multiple threads.
 /// Allows a per-thread init function and a background function that runs in the main thread
 /// while the workers are processing.
-pub fn parallel_for_each<It, Fi, Fw, Fb, Ei, Ew, Eb, State>(
+pub fn parallel_for_each<It, Fi, Fw, Fb, Ff, Ei, Ew, Eb, State>(
     iterator: It,
     init_fun: Fi,
     worker_fun: Fw,
     background_fun: Fb,
+    finished_callback: Ff,
     worker_count: WorkerCount,
 ) -> Result<(), ParallelForEachError<Ei, Ew, Eb>>
 where
@@ -79,65 +80,95 @@ where
     Fi: Fn(usize) -> Result<State, Ei> + Sync + Send,
     Fw: Fn(&mut State, It::Item) -> Result<(), Ew> + Sync + Send,
     Fb: FnOnce() -> Result<Continue, Eb>,
+    Ff: Fn() -> () + Sync + Send,
     Ei: ErrorSource,
     Ew: ErrorSource,
     Eb: ErrorSource,
 {
-    let iterator = std::sync::Mutex::new(FusedIterator::new(iterator));
+    struct State<T> {
+        iterator: Option<T>,
+        threads_running: usize,
+    }
+
+    impl<T: Iterator> State<T> {
+        /// Behaves like iterator next
+        fn next(&mut self) -> Option<<T as Iterator>::Item> {
+            let iterator = self.iterator.as_mut()?;
+            let item = iterator.next();
+
+            match item {
+                Some(_) => {},
+                None => self.stop(),
+            };
+
+            item
+        }
+
+        fn stop(&mut self) {
+            self.iterator = None
+        }
+    }
 
     let worker_count = match worker_count {
         WorkerCount::Auto => num_cpus::get(),
         WorkerCount::Manual(num) => num.get(),
     };
 
+    let state = parking_lot::Mutex::new(State {
+        iterator: Some(iterator),
+        threads_running: worker_count,
+    });
+
     // References that can safely be moved into the thread
-    let iterator = &iterator;
+    let state = &state;
     let init_fun = &init_fun;
     let worker_fun = &worker_fun;
+    let finished_callback = &finished_callback;
 
     crossbeam_utils::thread::scope(|scope| -> Result<(), ParallelForEachError<Ei, Ew, Eb>> {
         let handles = (0..worker_count).map(|worker_id| {
             scope.spawn(move |_| -> Result<(), ParallelForEachError<Ei, Ew, Eb>> {
-                defer! {
-                    (*iterator.lock().unwrap()).kill(); // Stop all threads if we're running out from the loop (even when panicking)
-                }
-                let mut state = init_fun(worker_id)
+                let mut state = scopeguard::guard(state.lock(), |mut state| {
+                    (*state).stop(); // Stop all threads if we're running out from the loop (even when panicking)
+                    (*state).threads_running -= 1;
+                    if (*state).threads_running == 0 {
+                        parking_lot::lock_api::MutexGuard::unlocked(&mut state, || finished_callback());
+                    }
+                });
+                let mut thread_state = parking_lot::lock_api::MutexGuard::unlocked(&mut state, || init_fun(worker_id))
                     .map_err(|source| ParallelForEachError::InitTaskError{source})?;
 
                 #[allow(clippy::while_let_loop)]
                 loop {
-                    let item = {
-                        let mut iterator_guard = iterator.lock().unwrap();
-                        match (*iterator_guard).next() {
-                            Some(item) => item,
-                            None => {
-                                (*iterator_guard).kill();
-                                break;
-                            },
-                        }
+                    let item = match (*state).next() {
+                        Some(item) => item,
+                        None => break,
                     };
-                    worker_fun(&mut state, item)
-                        .map_err(|source| ParallelForEachError::WorkerTaskError{source})?;
+                    parking_lot::lock_api::MutexGuard::unlocked(&mut state, || worker_fun(&mut thread_state, item))
+                        .map_err(|source| ParallelForEachError::WorkerTaskError{source})?
                 };
 
                 Ok(())
             })
         }).collect::<Vec<_>>();
+
+        scopeguard::defer_on_unwind! {
+            (*state.lock()).stop()
+        }
+
         let background_result = background_fun()
-            .map_err(|source| {
-                (*iterator.lock().unwrap()).kill();
-                ParallelForEachError::BackgroundTaskError { source }
-            })?;
+            .map_err(|source| ParallelForEachError::BackgroundTaskError{source});
 
         match background_result {
-            Continue::Continue => {},
-            Continue::Stop => (*iterator.lock().unwrap()).kill(),
+            Ok(Continue::Continue) => {},
+            _ => (*state.lock()).stop(),
         };
+
+        let _ = background_result?;
 
         for handle in handles {
             handle.join().unwrap()?;
         }
-
 
         Ok(())
     })
@@ -145,39 +176,6 @@ where
     ?;
 
     Ok(())
-}
-
-/// Iterator that always returns None after the first None and can be
-/// artificially stopped from the outside.
-struct FusedIterator<T>(Option<T>);
-
-impl<T: Iterator> Iterator for FusedIterator<T> {
-    type Item = T::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.as_mut().and_then(|it| it.next()).or_else(|| {
-            self.0 = None;
-            None
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.0 {
-            Some(it) => it.size_hint(),
-            None => (0, Some(0)),
-        }
-    }
-}
-
-impl<T> FusedIterator<T> {
-    fn new(it: T) -> Self {
-        FusedIterator(Some(it))
-    }
-
-    /// Make the iterator stop and never return any other value
-    fn kill(&mut self) {
-        self.0 = None;
-    }
 }
 
 /// Trait for values that can be used as source error.
@@ -217,8 +215,8 @@ mod test {
 
     fn worker_count_strategy() -> impl Strategy<Value = WorkerCount> {
         prop_oneof![
-            Just(WorkerCount::Auto),
             (1..32usize).prop_map(|n| WorkerCount::Manual(NonZeroUsize::new(n).unwrap())),
+            Just(WorkerCount::Auto),
         ]
     }
 
@@ -234,6 +232,7 @@ mod test {
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count).unwrap();
         }
 
@@ -250,6 +249,7 @@ mod test {
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count).unwrap();
 
             assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
@@ -280,6 +280,7 @@ mod test {
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count).unwrap();
 
             assert_eq!((*sum.lock().unwrap()), if n > 0 { n * (n - 1) / 2 } else { 0 });
@@ -296,26 +297,31 @@ mod test {
 
             parallel_for_each(
                 0..worker_count,
-                |_worker_id| -> Result<(), NoError> {
+                |_worker_id| -> Result<(), String> {
                     let mut count_waiting = count_waiting.lock().unwrap();
                     *count_waiting += 1;
                     if *count_waiting >= worker_count {
                         cond.notify_all();
+                        Ok(())
                     } else {
-                        loop {
+                        while let Some(timeout) = end.checked_duration_since(std::time::Instant::now()) {
                             let result = cond.wait_timeout(
                                 count_waiting,
-                                end - std::time::Instant::now()).unwrap();
+                                timeout).unwrap();
                             count_waiting = result.0;
-                            if result.1.timed_out() || *count_waiting >= worker_count {
-                                break;
+                            if result.1.timed_out() {
+                                return Err("Timed out".into());
+                            }
+                            else if *count_waiting >= worker_count {
+                                return Ok(());
                             }
                         }
-                    };
-                    Ok(())
+                        Err("wtf?".into())
+                    }
                 },
                 |_state, _i| -> Result<(), NoError> { Ok(()) },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 WorkerCount::Manual(NonZeroUsize::new(worker_count).unwrap())).unwrap();
 
             assert_eq!(*count_waiting.lock().unwrap(), worker_count);
@@ -337,6 +343,7 @@ mod test {
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Stop) },
+                || {},
                 worker_count).unwrap();
         }
 
@@ -352,6 +359,7 @@ mod test {
                 },
                 |_state, _i| -> Result<(), NoError> { Ok(()) },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count).unwrap();
         }
 
@@ -369,6 +377,7 @@ mod test {
                     panic!("Don't panic!");
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count).unwrap();
         }
 
@@ -381,6 +390,7 @@ mod test {
                 |_worker_id| -> Result<(), NoError> { Ok(()) },
                 |_state, _i| -> Result<(), NoError> { Ok(()) },
                 || -> Result<_, NoError> { panic!("Don't panic!"); },
+                || {},
                 worker_count).unwrap();
         }
 
@@ -414,6 +424,7 @@ mod test {
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count).unwrap();
 
             assert_eq!((*sum.lock().unwrap()), n);
@@ -438,6 +449,7 @@ mod test {
                     Ok(())
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count);
 
             if let Err(ParallelForEachError::InitTaskError{..}) = result {}
@@ -465,6 +477,7 @@ mod test {
                     }
                 },
                 || -> Result<_, NoError> { Ok(Continue::Continue) },
+                || {},
                 worker_count);
 
             if let Err(ParallelForEachError::WorkerTaskError{..}) = result {}
@@ -488,6 +501,7 @@ mod test {
                     Ok(())
                 },
                 || -> Result<_, String> { Err("None shall pass!".to_string()) },
+                || {},
                 worker_count);
 
             if let Err(ParallelForEachError::BackgroundTaskError{..}) = result {}
