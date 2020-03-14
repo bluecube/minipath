@@ -1,8 +1,8 @@
 #![feature(specialization)]
 
-mod util;
 mod parallel_for_each;
 mod screen_block;
+mod util;
 
 mod image_buffer;
 mod image_file_buffer;
@@ -24,7 +24,10 @@ fn make_output(w: u32, h: u32) -> util::SimpleResult<Box<dyn image_buffer::Image
     Ok(Box::new(image_file_buffer::ImageFileBuffer::new(w, h)))
 }
 
-fn run_all(output: Box<dyn image_buffer::ImageBuffer>, block_iterator: screen_block::SpiralChunks) -> util::SimpleResult {
+fn run_all(
+    output: Box<dyn image_buffer::ImageBuffer>,
+    block_iterator: screen_block::SpiralChunks,
+) -> util::SimpleResult {
     let output_writer = output.make_writer();
 
     parallel_for_each::parallel_for_each(

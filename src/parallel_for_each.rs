@@ -97,7 +97,7 @@ where
             let item = iterator.next();
 
             match item {
-                Some(_) => {},
+                Some(_) => {}
                 None => self.stop(),
             };
 

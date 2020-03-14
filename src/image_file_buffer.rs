@@ -27,7 +27,7 @@ impl image_buffer::ImageBuffer for ImageFileBuffer {
     }
 
     /// Creates a writer function that can write data into the window from different thread.
-    fn make_writer<'a>(&'a self) -> Box<dyn image_buffer::ImageBufferWriter+ 'a> {
+    fn make_writer<'a>(&'a self) -> Box<dyn image_buffer::ImageBufferWriter + 'a> {
         Box::new(Writer(&self.img))
     }
 
