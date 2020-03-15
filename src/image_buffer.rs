@@ -17,7 +17,7 @@ pub trait ImageBufferWriter: Sync + Send {
     fn write(
         &self,
         block: screen_block::ScreenBlock,
-        block_buffer: image::RgbaImage,
+        block_buffer: &image::RgbaImage,
     ) -> util::SimpleResult;
 }
 

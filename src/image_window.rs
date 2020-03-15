@@ -124,12 +124,12 @@ impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
     fn write(
         &self,
         block: screen_block::ScreenBlock,
-        block_buffer: image::RgbaImage,
+        block_buffer: &image::RgbaImage,
     ) -> util::SimpleResult {
         debug_assert_eq!(block_buffer.width(), block.width());
         debug_assert_eq!(block_buffer.height(), block.width());
 
-        (*self.img.lock().unwrap()).copy_from(&block_buffer, block.min.x, block.min.y)?;
+        (*self.img.lock().unwrap()).copy_from(block_buffer, block.min.x, block.min.y)?;
         self.event_sender.push_custom_event(block)?;
 
         Ok(())
