@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc f528f9aa70b260f1dbf58455066401313665bdf4fb049e267db53c0357fbe65f # shrinks to x = 0, y = 0, w = 0, h = 0
+cc 13b30a4251ce5d5a6fc17e9fe1e66256289bdfb44e5c1f64b8f0b5d063f1e049 # shrinks to block = ScreenBlockWrapper(Box2D((0,12), (0,0)))
+cc 7681db221857599dd6ad688a87365766c89723c32cfcdb4f91c388cd6f670546 # shrinks to block = ScreenBlockWrapper(Box2D((0,1), (0,0))), chunk_size_minus_one = 0
