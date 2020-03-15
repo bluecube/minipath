@@ -253,340 +253,368 @@ mod test {
             prop_oneof![
                 (1..128usize).prop_map(|n| WorkerCount::Manual(NonZeroUsize::new(n).unwrap())),
                 Just(WorkerCount::Auto),
-            ].boxed()
+            ]
+            .boxed()
         }
     }
 
-        // Checks that each worker has the same thread id as the state
-        #[proptest]
-        fn stable_thread_id(worker_count: WorkerCount, n: u8) {
-            let n = n as u32;
-            parallel_for_each(
-                0..n,
-                |_worker_id| -> Result<_, ()> { Ok(std::thread::current().id()) },
-                |state_thread_id, _i| -> Result<(), ()> {
-                    assert_eq!(&std::thread::current().id(), state_thread_id);
-                    Ok(())
-                },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
-                || {},
-                worker_count).unwrap();
+    // Checks that each worker has the same thread id as the state
+    #[proptest]
+    fn stable_thread_id(worker_count: WorkerCount, n: u8) {
+        let n = n as u32;
+        parallel_for_each(
+            0..n,
+            |_worker_id| -> Result<_, ()> { Ok(std::thread::current().id()) },
+            |state_thread_id, _i| -> Result<(), ()> {
+                assert_eq!(&std::thread::current().id(), state_thread_id);
+                Ok(())
+            },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || {},
+            worker_count,
+        )
+        .unwrap();
+    }
+
+    /// Sums a range using pralellel_for_each, checks that sum is as expected
+    #[proptest]
+    fn sum(worker_count: WorkerCount, n: u8) {
+        let n = n as u32;
+        let helper = IterationCheckHelper::new();
+        let sum = std::sync::atomic::AtomicU32::new(0);
+
+        parallel_for_each(
+            0..n,
+            |_worker_id| helper.workers_running_check(),
+            |_state, i| -> Result<(), String> {
+                helper.workers_running_check()?;
+                sum.fetch_add(i, Ordering::Relaxed);
+                Ok(())
+            },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || helper.finished_callback(),
+            worker_count,
+        )
+        .unwrap();
+
+        assert!(helper.check_after());
+        assert_eq!(
+            sum.load(Ordering::Relaxed),
+            if n > 0 { n * (n - 1) / 2 } else { 0 }
+        );
+    }
+
+    /// Sums a range using pralellel_for_each, keeping the partial sums in shared state, checks
+    /// that sum is as expected
+    #[proptest]
+    fn sum_in_state(worker_count: WorkerCount, n: u8) {
+        let n = n as u32;
+        let sum = AtomicU32::new(0);
+
+        struct State<'a> {
+            local_sum: u32,
+            global_sum: &'a AtomicU32,
         }
 
-        /// Sums a range using pralellel_for_each, checks that sum is as expected
-        #[proptest]
-        fn sum(worker_count: WorkerCount, n: u8) {
-            let n = n as u32;
-            let helper = IterationCheckHelper::new();
-            let sum = std::sync::atomic::AtomicU32::new(0);
-
-            parallel_for_each(
-                0..n,
-                |_worker_id| helper.workers_running_check(),
-                |_state, i| -> Result<(), String> {
-                    helper.workers_running_check()?;
-                    sum.fetch_add(i, Ordering::Relaxed);
-                    Ok(())
-                },
-                || -> Result<_, ()> {
-                    Ok(Continue::Continue)
-                },
-                || helper.finished_callback(),
-                worker_count).unwrap();
-
-            assert!(helper.check_after());
-            assert_eq!(sum.load(Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
-        }
-
-        /// Sums a range using pralellel_for_each, keeping the partial sums in shared state, checks
-        /// that sum is as expected
-        #[proptest]
-        fn sum_in_state(worker_count: WorkerCount, n: u8) {
-            let n = n as u32;
-            let sum = AtomicU32::new(0);
-
-            struct State<'a> {
-                local_sum: u32,
-                global_sum: &'a AtomicU32,
+        impl<'a> Drop for State<'a> {
+            fn drop(&mut self) {
+                self.global_sum.fetch_add(self.local_sum, Ordering::Relaxed);
             }
-
-            impl<'a> Drop for State<'a> {
-                fn drop(&mut self) {
-                    self.global_sum.fetch_add(self.local_sum, Ordering::Relaxed);
-                }
-            }
-
-            parallel_for_each(
-                0..n,
-                |_worker_id| -> Result<_, ()> { Ok(State { local_sum: 0, global_sum: &sum }) },
-                |state, i| -> Result<(), ()> {
-                    state.local_sum += i;
-                    Ok(())
-                },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
-                || {},
-                worker_count).unwrap();
-
-            assert_eq!(sum.load(Ordering::Relaxed), if n > 0 { n * (n - 1) / 2 } else { 0 });
         }
 
-        /// Checks that the jobs are actually running in different threads by
-        /// blocking as many threads as there are workers.
-        #[proptest]
-        fn actual_threads(worker_count: WorkerCount) {
-            let n = match worker_count {
-                WorkerCount::Auto => {
-                    prop_assume!(false, "This test doesn't work with automatic number of threads");
-                    unreachable!();
-                }
-                WorkerCount::Manual(n) => n.get(),
-            };
+        parallel_for_each(
+            0..n,
+            |_worker_id| -> Result<_, ()> {
+                Ok(State {
+                    local_sum: 0,
+                    global_sum: &sum,
+                })
+            },
+            |state, i| -> Result<(), ()> {
+                state.local_sum += i;
+                Ok(())
+            },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || {},
+            worker_count,
+        )
+        .unwrap();
 
-            let count_waiting = std::sync::Mutex::new(0usize);
-            let cond = std::sync::Condvar::new();
+        assert_eq!(
+            sum.load(Ordering::Relaxed),
+            if n > 0 { n * (n - 1) / 2 } else { 0 }
+        );
+    }
 
-            let end = Instant::now() + TIMEOUT;
+    /// Checks that the jobs are actually running in different threads by
+    /// blocking as many threads as there are workers.
+    #[proptest]
+    fn actual_threads(worker_count: WorkerCount) {
+        let n = match worker_count {
+            WorkerCount::Auto => {
+                prop_assume!(
+                    false,
+                    "This test doesn't work with automatic number of threads"
+                );
+                unreachable!();
+            }
+            WorkerCount::Manual(n) => n.get(),
+        };
 
-            parallel_for_each(
-                0..n,
-                |_worker_id| -> Result<(), String> {
-                    let mut count_waiting = count_waiting.lock().unwrap();
-                    *count_waiting += 1;
-                    if *count_waiting >= n {
-                        cond.notify_all();
-                        Ok(())
-                    } else {
-                        while let Some(timeout) = end.checked_duration_since(Instant::now()) {
-                            let result = cond.wait_timeout(
-                                count_waiting,
-                                timeout).unwrap();
-                            count_waiting = result.0;
-                            if result.1.timed_out() {
-                                return Err("Timed out".into());
-                            }
-                            else if *count_waiting >= n {
-                                return Ok(());
-                            }
+        let count_waiting = std::sync::Mutex::new(0usize);
+        let cond = std::sync::Condvar::new();
+
+        let end = Instant::now() + TIMEOUT;
+
+        parallel_for_each(
+            0..n,
+            |_worker_id| -> Result<(), String> {
+                let mut count_waiting = count_waiting.lock().unwrap();
+                *count_waiting += 1;
+                if *count_waiting >= n {
+                    cond.notify_all();
+                    Ok(())
+                } else {
+                    while let Some(timeout) = end.checked_duration_since(Instant::now()) {
+                        let result = cond.wait_timeout(count_waiting, timeout).unwrap();
+                        count_waiting = result.0;
+                        if result.1.timed_out() {
+                            return Err("Timed out".into());
+                        } else if *count_waiting >= n {
+                            return Ok(());
                         }
-                        Err("wtf?".into())
                     }
-                },
-                |_state, _i| -> Result<(), ()> { Ok(()) },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
-                || {},
-                worker_count).unwrap();
+                    Err("wtf?".into())
+                }
+            },
+            |_state, _i| -> Result<(), ()> { Ok(()) },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || {},
+            worker_count,
+        )
+        .unwrap();
 
-            assert_eq!(*count_waiting.lock().unwrap(), n);
-        }
+        assert_eq!(*count_waiting.lock().unwrap(), n);
+    }
 
-        /// Checks that the iteration stops when background function returns Stop and that finished
-        /// callback is correctly invoked.
-        #[proptest]
-        fn stop_from_background(worker_count: WorkerCount) {
-            let helper = IterationCheckHelper::new();
+    /// Checks that the iteration stops when background function returns Stop and that finished
+    /// callback is correctly invoked.
+    #[proptest]
+    fn stop_from_background(worker_count: WorkerCount) {
+        let helper = IterationCheckHelper::new();
 
-            parallel_for_each(
-                0..,
-                |_worker_id| helper.workers_running_check(),
-                |_state, _i| helper.workers_running_check(),
-                || -> Result<_, String> {
-                    // Here we can check that the threads have not finished yet, because the
-                    // iterator is infinite and only waiting for this method to return
-                    helper.workers_running_check()?;
-                    Ok(Continue::Stop)
-                },
-                || {
-                    helper.finished_callback();
-                },
-                worker_count).unwrap();
-                assert!(helper.check_after());
-        }
+        parallel_for_each(
+            0..,
+            |_worker_id| helper.workers_running_check(),
+            |_state, _i| helper.workers_running_check(),
+            || -> Result<_, String> {
+                // Here we can check that the threads have not finished yet, because the
+                // iterator is infinite and only waiting for this method to return
+                helper.workers_running_check()?;
+                Ok(Continue::Stop)
+            },
+            || {
+                helper.finished_callback();
+            },
+            worker_count,
+        )
+        .unwrap();
+        assert!(helper.check_after());
+    }
 
-        /// Checks that panics from thread init function are propagated
-        #[proptest]
-        #[should_panic]
-        fn propagates_panics_init(worker_count: WorkerCount) {
-            parallel_for_each(
-                0..,
-                |worker_id| -> Result<(), ()> {
-                    if worker_id == 0 {
-                        panic_control::disable_hook_in_current_thread();
-                        panic!("Don't panic!");
-                    } else {
-                        Ok(())
-                    }
-                },
-                |_state, _i| -> Result<(), ()> { Ok(()) },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
-                || {},
-                worker_count).unwrap();
-        }
-
-        /// Checks that panics from thread init function are propagated
-        #[proptest]
-        #[should_panic]
-        fn propagates_panics_worker(worker_count: WorkerCount, n: u8) {
-            let n = n as u32;
-            parallel_for_each(
-                0..,
-                |_worker_id| -> Result<(), ()> {
+    /// Checks that panics from thread init function are propagated
+    #[proptest]
+    #[should_panic]
+    fn propagates_panics_init(worker_count: WorkerCount) {
+        parallel_for_each(
+            0..,
+            |worker_id| -> Result<(), ()> {
+                if worker_id == 0 {
                     panic_control::disable_hook_in_current_thread();
+                    panic!("Don't panic!");
+                } else {
                     Ok(())
-                },
-                |_state, i| -> Result<(), ()> {
-                    if i == n {
-                       panic!("Don't panic!");
-                    } else {
-                        Ok(())
-                    }
-                },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
-                || {},
-                worker_count).unwrap();
-        }
+                }
+            },
+            |_state, _i| -> Result<(), ()> { Ok(()) },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || {},
+            worker_count,
+        )
+        .unwrap();
+    }
 
-        /// Checks that panics from thread init function are propagated
-        #[proptest]
-        #[should_panic]
-        fn propagates_panics_background(worker_count: WorkerCount) {
-            parallel_for_each(
-                0..,
-                |_worker_id| -> Result<(), ()> { Ok(()) },
-                |_state, _i| -> Result<(), ()> { Ok(()) },
-                || -> Result<_, ()> { panic!("Don't panic!"); },
-                || {},
-                worker_count).unwrap();
-        }
+    /// Checks that panics from thread init function are propagated
+    #[proptest]
+    #[should_panic]
+    fn propagates_panics_worker(worker_count: WorkerCount, n: u8) {
+        let n = n as u32;
+        parallel_for_each(
+            0..,
+            |_worker_id| -> Result<(), ()> {
+                panic_control::disable_hook_in_current_thread();
+                Ok(())
+            },
+            |_state, i| -> Result<(), ()> {
+                if i == n {
+                    panic!("Don't panic!");
+                } else {
+                    Ok(())
+                }
+            },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || {},
+            worker_count,
+        )
+        .unwrap();
+    }
 
-        /// Tests that if iterator returns None once, it will stop the iteration completely
-        #[proptest]
-        fn ugly_iterator(worker_count: WorkerCount, n: u8) {
-            let n = n as u32;
-            struct UglyIterator(u32);
+    /// Checks that panics from thread init function are propagated
+    #[proptest]
+    #[should_panic]
+    fn propagates_panics_background(worker_count: WorkerCount) {
+        parallel_for_each(
+            0..,
+            |_worker_id| -> Result<(), ()> { Ok(()) },
+            |_state, _i| -> Result<(), ()> { Ok(()) },
+            || -> Result<_, ()> {
+                panic!("Don't panic!");
+            },
+            || {},
+            worker_count,
+        )
+        .unwrap();
+    }
 
-            impl Iterator for UglyIterator {
-                type Item = u32;
-                fn next(&mut self) -> Option<u32> {
+    /// Tests that if iterator returns None once, it will stop the iteration completely
+    #[proptest]
+    fn ugly_iterator(worker_count: WorkerCount, n: u8) {
+        let n = n as u32;
+        struct UglyIterator(u32);
+
+        impl Iterator for UglyIterator {
+            type Item = u32;
+            fn next(&mut self) -> Option<u32> {
+                if self.0 == 0 {
+                    Some(1)
+                } else {
+                    self.0 -= 1;
                     if self.0 == 0 {
-                        Some(1)
+                        None
                     } else {
-                        self.0 -= 1;
-                        if self.0 == 0 {
-                            None
-                        } else {
-                            Some(1)
-                        }
+                        Some(1)
                     }
                 }
             }
-
-            let sum = AtomicU32::new(0);
-
-            parallel_for_each(
-                UglyIterator(n + 1),
-                |_worker_id| -> Result<(), ()> { Ok(()) },
-                |_state, i| -> Result<(), ()> {
-                    sum.fetch_add(i, Ordering::Relaxed);
-                    Ok(())
-                },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
-                || {},
-                worker_count).unwrap();
-
-            assert_eq!(sum.load(Ordering::Relaxed), n);
         }
 
-        /// Checks that the iteration stops when background function returns Stop.
-        #[proptest]
-        fn error_from_init(worker_count: WorkerCount) {
-            let helper = IterationCheckHelper::new();
+        let sum = AtomicU32::new(0);
 
-            let result = parallel_for_each(
-                0..,
-                |worker_id| -> Result<(), String> {
-                    helper.workers_running_check()?;
-                    if worker_id == 0 {
-                        Err("None shall pass!".to_string())
-                    } else {
-                        Ok(())
-                    }
-                },
-                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
-                || -> Result<_, ()> {
-                    Ok(Continue::Continue)
-                },
-                || helper.finished_callback(),
-                worker_count);
+        parallel_for_each(
+            UglyIterator(n + 1),
+            |_worker_id| -> Result<(), ()> { Ok(()) },
+            |_state, i| -> Result<(), ()> {
+                sum.fetch_add(i, Ordering::Relaxed);
+                Ok(())
+            },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || {},
+            worker_count,
+        )
+        .unwrap();
 
+        assert_eq!(sum.load(Ordering::Relaxed), n);
+    }
 
-            match result {
-                Err(ParallelForEachError::InitTaskError{ source }) => {
-                    assert_eq!(source, "None shall pass!");
-                    assert!(helper.check_after());
-                },
-                Err(e) => panic!("We didn't get the right error ({})", e),
-                Ok(()) => panic!("We didn't get an error!"),
-            }
-        }
+    /// Checks that the iteration stops when background function returns Stop.
+    #[proptest]
+    fn error_from_init(worker_count: WorkerCount) {
+        let helper = IterationCheckHelper::new();
 
-        /// Checks that the iteration stops when background function returns Stop.
-        #[proptest]
-        fn error_from_worker(worker_count: WorkerCount, n: u8) {
-            let n = n as u32;
-            let helper = IterationCheckHelper::new();
-
-            let result = parallel_for_each(
-                0..,
-                |_worker_id| -> Result<(), String> { helper.workers_running_check() },
-                |_state, i| -> Result<(), String> {
-                    helper.workers_running_check()?;
-                    if i == n {
-                        Err("None shall pass!".to_string())
-                    } else {
-                        Ok(())
-                    }
-                },
-                || -> Result<_, ()> {
-                    Ok(Continue::Continue)
-                },
-                || helper.finished_callback(),
-                worker_count);
-
-            match result {
-                Err(ParallelForEachError::WorkerTaskError{ source }) => {
-                    assert_eq!(source, "None shall pass!");
-                    assert!(helper.check_after());
-                },
-                Err(e) => panic!("We didn't get the right error ({})", e),
-                Ok(()) => panic!("We didn't get an error!"),
-            }
-        }
-
-        /// Checks that the iteration stops when background function returns Stop.
-        #[proptest]
-        fn error_from_background(worker_count: WorkerCount) {
-            let helper = IterationCheckHelper::new();
-
-            let result = parallel_for_each(
-                0..,
-                |_worker_id| -> Result<(), String> { helper.workers_running_check() },
-                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
-                || -> Result<_, String> {
-                    helper.workers_running_check()?;
+        let result = parallel_for_each(
+            0..,
+            |worker_id| -> Result<(), String> {
+                helper.workers_running_check()?;
+                if worker_id == 0 {
                     Err("None shall pass!".to_string())
-                },
-                || helper.finished_callback(),
-                worker_count);
+                } else {
+                    Ok(())
+                }
+            },
+            |_state, _i| -> Result<(), String> { helper.workers_running_check() },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || helper.finished_callback(),
+            worker_count,
+        );
 
-            match result {
-                Err(ParallelForEachError::BackgroundTaskError{ source }) => {
-                    assert_eq!(source, "None shall pass!");
-                    assert!(helper.check_after());
-                },
-                Err(e) => panic!("We didn't get the right error ({})", e),
-                Ok(()) => panic!("We didn't get an error!"),
+        match result {
+            Err(ParallelForEachError::InitTaskError { source }) => {
+                assert_eq!(source, "None shall pass!");
+                assert!(helper.check_after());
             }
+            Err(e) => panic!("We didn't get the right error ({})", e),
+            Ok(()) => panic!("We didn't get an error!"),
         }
+    }
+
+    /// Checks that the iteration stops when background function returns Stop.
+    #[proptest]
+    fn error_from_worker(worker_count: WorkerCount, n: u8) {
+        let n = n as u32;
+        let helper = IterationCheckHelper::new();
+
+        let result = parallel_for_each(
+            0..,
+            |_worker_id| -> Result<(), String> { helper.workers_running_check() },
+            |_state, i| -> Result<(), String> {
+                helper.workers_running_check()?;
+                if i == n {
+                    Err("None shall pass!".to_string())
+                } else {
+                    Ok(())
+                }
+            },
+            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || helper.finished_callback(),
+            worker_count,
+        );
+
+        match result {
+            Err(ParallelForEachError::WorkerTaskError { source }) => {
+                assert_eq!(source, "None shall pass!");
+                assert!(helper.check_after());
+            }
+            Err(e) => panic!("We didn't get the right error ({})", e),
+            Ok(()) => panic!("We didn't get an error!"),
+        }
+    }
+
+    /// Checks that the iteration stops when background function returns Stop.
+    #[proptest]
+    fn error_from_background(worker_count: WorkerCount) {
+        let helper = IterationCheckHelper::new();
+
+        let result = parallel_for_each(
+            0..,
+            |_worker_id| -> Result<(), String> { helper.workers_running_check() },
+            |_state, _i| -> Result<(), String> { helper.workers_running_check() },
+            || -> Result<_, String> {
+                helper.workers_running_check()?;
+                Err("None shall pass!".to_string())
+            },
+            || helper.finished_callback(),
+            worker_count,
+        );
+
+        match result {
+            Err(ParallelForEachError::BackgroundTaskError { source }) => {
+                assert_eq!(source, "None shall pass!");
+                assert!(helper.check_after());
+            }
+            Err(e) => panic!("We didn't get the right error ({})", e),
+            Ok(()) => panic!("We didn't get an error!"),
+        }
+    }
 
     // TODO: Panic in functions still calls callback
     // TODO: Panic in callback is propagated

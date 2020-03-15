@@ -19,7 +19,10 @@ where
         block_iterator,
         |_worker_id| -> Result<_, util::NoError> {
             use rand::SeedableRng;
-            Ok((rand::rngs::SmallRng::from_entropy(), image::RgbaImage::new(chunk_size, chunk_size)))
+            Ok((
+                rand::rngs::SmallRng::from_entropy(),
+                image::RgbaImage::new(chunk_size, chunk_size),
+            ))
         },
         |state, block| -> util::SimpleResult<_> {
             let (ref mut rng, ref mut buffer) = state;
@@ -44,7 +47,8 @@ where
 fn render_block<T: rand::Rng>(
     block: screen_block::ScreenBlock,
     rng: &mut T,
-    output_buffer: &mut image::RgbaImage) {
+    output_buffer: &mut image::RgbaImage,
+) {
     // Pretend to render a block
     std::thread::sleep(std::time::Duration::from_millis(rng.gen_range(500, 2000)));
 
