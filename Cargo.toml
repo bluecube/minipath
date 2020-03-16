@@ -6,6 +6,7 @@ description = "Toy path tracer, focused more on the toy part, than the path trac
 edition = "2018"
 
 [features]
+default = ["gui"]
 gui = ["sdl2"]
 
 [dependencies]
