@@ -162,7 +162,11 @@ where
         let _ = background_result?;
 
         for handle in handles {
-            handle.join().unwrap()?;
+            match handle.join() {
+                Ok(Ok(())) => {},
+                Ok(Err(e)) => return Err(e),
+                Err(p) => std::panic::resume_unwind(p),
+            }
         }
 
         Ok(())
@@ -240,7 +244,7 @@ mod test {
             self.finished.store(true, Ordering::Relaxed);
         }
 
-        fn check_after(&self) -> bool {
+        fn callback_called_check(&self) -> bool {
             self.finished.load(Ordering::Relaxed)
         }
     }
@@ -296,7 +300,7 @@ mod test {
         )
         .unwrap();
 
-        assert!(helper.check_after());
+        assert!(helper.callback_called_check());
         assert_eq!(
             sum.load(Ordering::Relaxed),
             if n > 0 { n * (n - 1) / 2 } else { 0 }
@@ -418,89 +422,159 @@ mod test {
             worker_count,
         )
         .unwrap();
-        assert!(helper.check_after());
+        assert!(helper.callback_called_check());
     }
 
     /// Checks that panics from thread init function are propagated
     #[proptest]
-    #[should_panic]
     fn propagates_panics_init(worker_count: WorkerCount) {
-        parallel_for_each(
-            0..,
-            |worker_id| -> Result<(), ()> {
-                if worker_id == 0 {
-                    panic_control::disable_hook_in_current_thread();
-                    panic!("Don't panic!");
+        let helper = IterationCheckHelper::new();
+        let result = std::panic::catch_unwind(|| {
+            parallel_for_each(
+                0..,
+                |worker_id| -> Result<(), String> {
+                    helper.workers_running_check()?;
+                    if worker_id == 0 {
+                        panic_control::disable_hook_in_current_thread();
+                        panic!("Don't panic!");
+                    } else {
+                        Ok(())
+                    }
+                },
+                |_state, _i| -> Result<(), String> {
+                    helper.workers_running_check()
+                },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
+                || helper.finished_callback(),
+                worker_count,
+            )
+        });
+        match result {
+            Err(e) => {
+                if let Some(string) = e.downcast_ref::<&str>() {
+                    assert_eq!(string, &"Don't panic!");
+                    assert!(helper.callback_called_check());
                 } else {
-                    Ok(())
+                    panic!("Got non-string panic");
                 }
-            },
-            |_state, _i| -> Result<(), ()> { Ok(()) },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
-            || {},
-            worker_count,
-        )
-        .unwrap();
+            }
+            Ok(Ok(_)) => panic!("Didn't get panic"),
+            Ok(Err(e)) => panic!("Something went wrong: {}", e),
+        }
     }
 
     /// Checks that panics from thread init function are propagated
     #[proptest]
-    #[should_panic]
     fn propagates_panics_worker(worker_count: WorkerCount, n: u8) {
         let n = n as u32;
-        parallel_for_each(
-            0..,
-            |_worker_id| -> Result<(), ()> {
-                panic_control::disable_hook_in_current_thread();
-                Ok(())
-            },
-            |_state, i| -> Result<(), ()> {
-                if i == n {
-                    panic!("Don't panic!");
+        let helper = IterationCheckHelper::new();
+        let result = std::panic::catch_unwind(|| {
+            parallel_for_each(
+                0..,
+                |_worker_id| -> Result<(), String> {
+                    panic_control::disable_hook_in_current_thread();
+                    helper.workers_running_check()
+                },
+                |_state, i| -> Result<(), String> {
+                    helper.workers_running_check()?;
+                    if i == n {
+                        panic!("Don't panic!");
+                    } else {
+                        Ok(())
+                    }
+                },
+                || -> Result<_, ()> { Ok(Continue::Continue) },
+                || helper.finished_callback(),
+                worker_count,
+            )
+        });
+        match result {
+            Err(e) => {
+                if let Some(string) = e.downcast_ref::<&str>() {
+                    assert_eq!(string, &"Don't panic!");
+                    assert!(helper.callback_called_check());
                 } else {
-                    Ok(())
+                    panic!("Got non-string panic");
                 }
-            },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
-            || {},
-            worker_count,
-        )
-        .unwrap();
+            }
+            Ok(Ok(_)) => panic!("Didn't get panic"),
+            Ok(Err(e)) => panic!("Something went wrong: {}", e),
+        }
     }
 
     /// Checks that panics from thread init function are propagated
     #[proptest]
-    #[should_panic]
     fn propagates_panics_background(worker_count: WorkerCount) {
-        parallel_for_each(
-            0..,
-            |_worker_id| -> Result<(), ()> { Ok(()) },
-            |_state, _i| -> Result<(), ()> { Ok(()) },
-            || -> Result<_, ()> {
-                panic!("Don't panic!");
-            },
-            || {},
-            worker_count,
-        )
-        .unwrap();
+        let helper = IterationCheckHelper::new();
+        let result = std::panic::catch_unwind(|| {
+            parallel_for_each(
+                0..,
+                |_worker_id| -> Result<(), String> {
+                    helper.workers_running_check()
+                },
+                |_state, _i| -> Result<(), String> {
+                    helper.workers_running_check()
+                },
+                || -> Result<_, String> {
+                    helper.workers_running_check()?;
+                    panic_control::disable_hook_in_current_thread();
+                    panic!("Don't panic!");
+                },
+                || helper.finished_callback(),
+                worker_count,
+            )
+        });
+        match result {
+            Err(e) => {
+                if let Some(string) = e.downcast_ref::<&str>() {
+                    assert_eq!(string, &"Don't panic!");
+                    assert!(helper.callback_called_check());
+                } else {
+                    panic!("Got non-string panic");
+                }
+            }
+            Ok(Ok(_)) => panic!("Didn't get panic"),
+            Ok(Err(e)) => panic!("Something went wrong: {}", e),
+        }
     }
 
     /// Checks that panics from finished callback function are propagated
     #[proptest]
-    #[should_panic]
     fn propagates_panics_callback(worker_count: WorkerCount) {
-        parallel_for_each(
-            0..,
-            |_worker_id| -> Result<(), ()> {
-                panic_control::disable_hook_in_current_thread();
-                Ok(())
-            },
-            |_state, _i| -> Result<(), ()> { Ok(()) },
-            || -> Result<_, ()> { Ok(Continue::Stop) },
-            || panic!("Don't panic!"),
-            worker_count,
-        )
-        .unwrap();
+        let helper = IterationCheckHelper::new();
+        let result = std::panic::catch_unwind(|| {
+            parallel_for_each(
+                0..,
+                |_worker_id| -> Result<(), String> {
+                    panic_control::disable_hook_in_current_thread();
+                    helper.workers_running_check()
+                },
+                |_state, _i| -> Result<(), String> {
+                    helper.workers_running_check()
+                },
+                || -> Result<_, String> {
+                    helper.workers_running_check()?;
+                    Ok(Continue::Stop)
+                },
+                || {
+                    helper.finished_callback();
+                    panic!("Don't panic!");
+                },
+                worker_count,
+            )
+        });
+        match result {
+            Err(e) => {
+                if let Some(string) = e.downcast_ref::<&str>() {
+                    assert_eq!(string, &"Don't panic!");
+                    assert!(helper.callback_called_check());
+                } else {
+                    panic!("Got non-string panic");
+                }
+            }
+            Ok(Ok(_)) => panic!("Didn't get panic"),
+            Ok(Err(e)) => panic!("Something went wrong: {}", e),
+        }
     }
 
     /// Tests that if iterator returns None once, it will stop the iteration completely
@@ -567,7 +641,7 @@ mod test {
         match result {
             Err(ParallelForEachError::InitTaskError { source }) => {
                 assert_eq!(source, "None shall pass!");
-                assert!(helper.check_after());
+                assert!(helper.callback_called_check());
             }
             Err(e) => panic!("We didn't get the right error ({})", e),
             Ok(()) => panic!("We didn't get an error!"),
@@ -599,7 +673,7 @@ mod test {
         match result {
             Err(ParallelForEachError::WorkerTaskError { source }) => {
                 assert_eq!(source, "None shall pass!");
-                assert!(helper.check_after());
+                assert!(helper.callback_called_check());
             }
             Err(e) => panic!("We didn't get the right error ({})", e),
             Ok(()) => panic!("We didn't get an error!"),
@@ -626,12 +700,10 @@ mod test {
         match result {
             Err(ParallelForEachError::BackgroundTaskError { source }) => {
                 assert_eq!(source, "None shall pass!");
-                assert!(helper.check_after());
+                assert!(helper.callback_called_check());
             }
             Err(e) => panic!("We didn't get the right error ({})", e),
             Ok(()) => panic!("We didn't get an error!"),
         }
     }
-
-    // TODO: Panic in functions still calls callback
 }
