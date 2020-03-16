@@ -3,8 +3,8 @@ use crate::screen_block;
 use crate::util;
 
 use image;
-use sdl2;
 use parking_lot;
+use sdl2;
 
 use image::GenericImage;
 use image::GenericImageView;
@@ -129,7 +129,9 @@ impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
         debug_assert_eq!(block_buffer.width(), block.width());
         debug_assert_eq!(block_buffer.height(), block.width());
 
-        self.img.lock().copy_from(block_buffer, block.min.x, block.min.y)?;
+        self.img
+            .lock()
+            .copy_from(block_buffer, block.min.x, block.min.y)?;
         self.event_sender.push_custom_event(block)?;
 
         Ok(())

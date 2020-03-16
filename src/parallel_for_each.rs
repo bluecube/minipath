@@ -441,9 +441,7 @@ mod test {
                         Ok(())
                     }
                 },
-                |_state, _i| -> Result<(), String> {
-                    helper.workers_running_check()
-                },
+                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
                 || -> Result<_, ()> { Ok(Continue::Continue) },
                 || helper.finished_callback(),
                 worker_count,
@@ -509,12 +507,8 @@ mod test {
         let result = std::panic::catch_unwind(|| {
             parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), String> {
-                    helper.workers_running_check()
-                },
-                |_state, _i| -> Result<(), String> {
-                    helper.workers_running_check()
-                },
+                |_worker_id| -> Result<(), String> { helper.workers_running_check() },
+                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
                 || -> Result<_, String> {
                     helper.workers_running_check()?;
                     panic_control::disable_hook_in_current_thread();
@@ -549,9 +543,7 @@ mod test {
                     panic_control::disable_hook_in_current_thread();
                     helper.workers_running_check()
                 },
-                |_state, _i| -> Result<(), String> {
-                    helper.workers_running_check()
-                },
+                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
                 || -> Result<_, String> {
                     helper.workers_running_check()?;
                     Ok(Continue::Stop)
