@@ -486,6 +486,24 @@ mod test {
         .unwrap();
     }
 
+    /// Checks that panics from finished callback function are propagated
+    #[proptest]
+    #[should_panic]
+    fn propagates_panics_callback(worker_count: WorkerCount) {
+        parallel_for_each(
+            0..,
+            |_worker_id| -> Result<(), ()> {
+                panic_control::disable_hook_in_current_thread();
+                Ok(())
+            },
+            |_state, _i| -> Result<(), ()> { Ok(()) },
+            || -> Result<_, ()> { Ok(Continue::Stop) },
+            || panic!("Don't panic!"),
+            worker_count,
+        )
+        .unwrap();
+    }
+
     /// Tests that if iterator returns None once, it will stop the iteration completely
     #[proptest]
     fn ugly_iterator(worker_count: WorkerCount, n: u8) {
@@ -617,5 +635,4 @@ mod test {
     }
 
     // TODO: Panic in functions still calls callback
-    // TODO: Panic in callback is propagated
 }
