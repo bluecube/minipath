@@ -3,20 +3,20 @@ use crate::screen_block;
 use crate::util;
 
 use image;
-use std::sync;
+use parking_lot;
 
 use image::GenericImage;
 
 /// ImageBuffer that can only save its content to file.
 pub struct ImageFileBuffer {
-    img: sync::Mutex<image::RgbaImage>,
+    img: parking_lot::Mutex<image::RgbaImage>,
 }
 
 impl ImageFileBuffer {
     /// Creates new image file buffer
     pub fn new(width: u32, height: u32) -> ImageFileBuffer {
         ImageFileBuffer {
-            img: sync::Mutex::new(image::RgbaImage::new(width, height)),
+            img: parking_lot::Mutex::new(image::RgbaImage::new(width, height)),
         }
     }
 }
@@ -32,12 +32,12 @@ impl image_buffer::ImageBuffer for ImageFileBuffer {
     }
 
     fn save(&self, path: &std::path::Path) -> util::SimpleResult {
-        (*self.img.lock().unwrap()).save(path)?;
+        self.img.lock().save(path)?;
         Ok(())
     }
 }
 
-pub struct Writer<'a>(&'a sync::Mutex<image::RgbaImage>);
+pub struct Writer<'a>(&'a parking_lot::Mutex<image::RgbaImage>);
 
 impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
     fn write(
@@ -48,7 +48,7 @@ impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
         debug_assert_eq!(block_buffer.width(), block.width());
         debug_assert_eq!(block_buffer.height(), block.width());
 
-        (*self.0.lock().unwrap()).copy_from(block_buffer, block.min.x, block.min.y)?;
+        self.0.lock().copy_from(block_buffer, block.min.x, block.min.y)?;
 
         Ok(())
     }

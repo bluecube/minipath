@@ -4,7 +4,7 @@ use crate::util;
 
 use image;
 use sdl2;
-use std::sync;
+use parking_lot;
 
 use image::GenericImage;
 use image::GenericImageView;
@@ -19,7 +19,7 @@ pub struct ImageWindow {
     context: sdl2::Sdl,
     event: sdl2::EventSubsystem,
 
-    img: sync::Mutex<image::RgbaImage>,
+    img: parking_lot::Mutex<image::RgbaImage>,
 }
 
 impl ImageWindow {
@@ -38,7 +38,7 @@ impl ImageWindow {
             context,
             event,
 
-            img: sync::Mutex::new(image::ImageBuffer::<PixelType, _>::new(width, height)),
+            img: parking_lot::Mutex::new(image::ImageBuffer::<PixelType, _>::new(width, height)),
         })
     }
 }
@@ -65,7 +65,7 @@ impl image_buffer::ImageBuffer for ImageWindow {
         )?;
         texture.set_blend_mode(sdl2::render::BlendMode::Blend);
 
-        update_texture(&*self.img.lock().unwrap(), &mut texture, self.size.into())?; // Copy the empty output to texture
+        update_texture(&self.img.lock(), &mut texture, self.size.into())?; // Copy the empty output to texture
 
         let mut events = self.context.event_pump()?;
 
@@ -92,7 +92,7 @@ impl image_buffer::ImageBuffer for ImageWindow {
                 _ => {
                     if let Some(rendered) = event.as_user_event_type::<screen_block::ScreenBlock>()
                     {
-                        update_texture(&*self.img.lock().unwrap(), &mut texture, rendered)?;
+                        update_texture(&self.img.lock(), &mut texture, rendered)?;
                         redraw(&mut canvas, &texture)?;
                     }
                 }
@@ -110,14 +110,14 @@ impl image_buffer::ImageBuffer for ImageWindow {
     }
 
     fn save(&self, path: &std::path::Path) -> util::SimpleResult {
-        (*self.img.lock().unwrap()).save(path)?;
+        self.img.lock().save(path)?;
         Ok(())
     }
 }
 
 pub struct Writer<'a> {
     event_sender: sdl2::event::EventSender,
-    img: &'a std::sync::Mutex<image::RgbaImage>,
+    img: &'a parking_lot::Mutex<image::RgbaImage>,
 }
 
 impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
@@ -129,7 +129,7 @@ impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
         debug_assert_eq!(block_buffer.width(), block.width());
         debug_assert_eq!(block_buffer.height(), block.width());
 
-        (*self.img.lock().unwrap()).copy_from(block_buffer, block.min.x, block.min.y)?;
+        self.img.lock().copy_from(block_buffer, block.min.x, block.min.y)?;
         self.event_sender.push_custom_event(block)?;
 
         Ok(())
@@ -167,7 +167,7 @@ fn update_texture(
             };
             let mut texture_view = texture_samples.as_view_mut::<PixelType>().unwrap();
             texture_view.copy_from(
-                &(*img).view(block.min.x, block.min.y, block.width(), block.height()),
+                &img.view(block.min.x, block.min.y, block.width(), block.height()),
                 0,
                 0,
             )?;
