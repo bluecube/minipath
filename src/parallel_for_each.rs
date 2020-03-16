@@ -92,10 +92,9 @@ where
             let iterator = self.iterator.as_mut()?;
             let item = iterator.next();
 
-            match item {
-                Some(_) => {}
-                None => self.stop(),
-            };
+            if item.is_none() {
+                self.stop();
+            }
 
             item
         }
