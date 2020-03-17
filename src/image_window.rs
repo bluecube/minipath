@@ -126,8 +126,8 @@ impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
         block: screen_block::ScreenBlock,
         block_buffer: &image::RgbaImage,
     ) -> util::SimpleResult {
-        debug_assert_eq!(block_buffer.width(), block.width());
-        debug_assert_eq!(block_buffer.height(), block.width());
+        debug_assert!(block.width() <= block_buffer.width());
+        debug_assert!(block.height() <= block_buffer.height());
 
         self.img
             .lock()
@@ -214,4 +214,20 @@ fn draw_checkerboard(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) -> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn test_image_window() {
+        const WIDTH: u32 = 200;
+        const HEIGHT: u32 = 200;
+        const CHUNK_SIZE: u32 = 51;
+
+        let mut window = ImageWindow::new("ImageWindow test", WIDTH, HEIGHT).unwrap();
+        image_buffer::test::test_image_buffer(WIDTH, HEIGHT, CHUNK_SIZE, &mut window);
+    }
 }
