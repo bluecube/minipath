@@ -1,5 +1,5 @@
+use crate::geometry::*;
 use crate::image_buffer;
-use crate::screen_block;
 use crate::util;
 
 use image;
@@ -40,11 +40,7 @@ impl image_buffer::ImageBuffer for ImageFileBuffer {
 pub struct Writer<'a>(&'a parking_lot::Mutex<image::RgbaImage>);
 
 impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
-    fn write(
-        &self,
-        block: screen_block::ScreenBlock,
-        block_buffer: &image::RgbaImage,
-    ) -> util::SimpleResult {
+    fn write(&self, block: ScreenBlock, block_buffer: &image::RgbaImage) -> util::SimpleResult {
         debug_assert!(block.width() <= block_buffer.width());
         debug_assert!(block.height() <= block_buffer.height());
 

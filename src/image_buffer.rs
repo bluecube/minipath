@@ -1,4 +1,4 @@
-use crate::screen_block;
+use crate::geometry::*;
 use crate::util;
 
 /// Trait for an image buffer that can be accessed from multiple threads
@@ -14,11 +14,7 @@ pub trait ImageBuffer {
 }
 
 pub trait ImageBufferWriter: Sync + Send {
-    fn write(
-        &self,
-        block: screen_block::ScreenBlock,
-        block_buffer: &image::RgbaImage,
-    ) -> util::SimpleResult;
+    fn write(&self, block: ScreenBlock, block_buffer: &image::RgbaImage) -> util::SimpleResult;
 }
 
 /// This is an implementation of the unit tests that is shared for all impls of
@@ -27,7 +23,7 @@ pub trait ImageBufferWriter: Sync + Send {
 pub mod test {
     use super::*;
 
-    fn create_test_pattern(block: screen_block::ScreenBlock) -> image::RgbaImage {
+    fn create_test_pattern(block: ScreenBlock) -> image::RgbaImage {
         assert!(!block.is_empty_or_negative());
         image::RgbaImage::from_fn(block.width(), block.height(), |x, y| {
             let x = (x + block.min.x) as f64;
@@ -43,17 +39,13 @@ pub mod test {
     }
 
     /// Creates an image buffer and randomly (but single threadedly) fills it with test patern.
-    fn fill_image_buffer(
-        block: screen_block::ScreenBlock,
-        chunk_size: u32,
-        buffer: &mut dyn ImageBuffer,
-    ) {
+    fn fill_image_buffer(block: ScreenBlock, chunk_size: u32, buffer: &mut dyn ImageBuffer) {
         assert_eq!(block.min.x, 0);
         assert_eq!(block.min.y, 0);
 
         use rand::seq::SliceRandom;
         use rand::SeedableRng;
-        use screen_block::ScreenBlockExt;
+        use ScreenBlockExt;
 
         let mut blocks: Vec<_> = block.spiral_chunks(chunk_size).collect();
         let mut rng = rand::rngs::StdRng::seed_from_u64(0); // we just need a single non-trivial shuffle
@@ -81,7 +73,7 @@ pub mod test {
         buffer: &mut dyn ImageBuffer,
     ) {
         let size = screen_block::ScreenSize::new(width, height);
-        let block = screen_block::ScreenBlock::from_size(size);
+        let block = ScreenBlock::from_size(size);
 
         fill_image_buffer(block, chunk_size, buffer);
 

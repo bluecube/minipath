@@ -2,10 +2,7 @@ use euclid::*;
 use std::cmp;
 use std::iter::FusedIterator;
 
-pub struct ScreenSpace;
-pub type PixelPosition = Point2D<u32, ScreenSpace>;
-pub type ScreenSize = Size2D<u32, ScreenSpace>;
-pub type ScreenBlock = Box2D<u32, ScreenSpace>;
+use crate::geometry::*;
 
 /// Coordinates of chunks in the image. The scaling factor is potentially different for every chunk
 /// iterator.
@@ -71,9 +68,9 @@ impl ScreenBlockExt for ScreenBlock {
 #[derive(Copy, Clone, Debug)]
 pub struct InternalPoints {
     min_x: u32, // Unfortunately this can't easily be Length :-( TODO: Fix this in euclid?
-    max: PixelPosition,
+    max: ScreenPoint,
 
-    cursor: PixelPosition,
+    cursor: ScreenPoint,
 }
 
 impl InternalPoints {
@@ -89,7 +86,7 @@ impl InternalPoints {
 }
 
 impl Iterator for InternalPoints {
-    type Item = PixelPosition;
+    type Item = ScreenPoint;
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         let len = self.len();
@@ -323,7 +320,7 @@ mod test {
     }
 
     /// Check that all pixels in the block are covered by a pixel iterator
-    fn check_pixel_iterator_covers_block<T: Iterator<Item = PixelPosition>>(
+    fn check_pixel_iterator_covers_block<T: Iterator<Item = ScreenPoint>>(
         mut pixel_iterator: T,
         block: ScreenBlock,
     ) {

@@ -1,25 +1,25 @@
 use crate::image_buffer;
 use crate::parallel_for_each;
 use crate::screen_block;
+use crate::geometry::*;
 use crate::util;
 
 use screen_block::ScreenBlockExt;
 
 #[derive(Copy, Clone, Debug)]
 pub struct RenderSettings {
-    pub image_size: screen_block::ScreenSize,
+    pub image_size: ScreenSize,
     pub block_size: std::num::NonZeroU32,
     pub sample_count: std::num::NonZeroU32,
 }
 
 pub fn render<F>(settings: &RenderSettings, buffer_factory: F) -> util::SimpleResult
 where
-    F: FnOnce(screen_block::ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>>,
+    F: FnOnce(ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>>,
 {
     let block_size = settings.block_size.get();
     let buffer = buffer_factory(settings.image_size)?;
-    let block_iterator =
-        screen_block::ScreenBlock::from_size(settings.image_size).spiral_chunks(block_size);
+    let block_iterator = ScreenBlock::from_size(settings.image_size).spiral_chunks(block_size);
 
     let buffer_writer = buffer.make_writer();
 
@@ -53,7 +53,7 @@ where
 }
 
 fn render_block(
-    block: screen_block::ScreenBlock,
+    block: ScreenBlock,
     settings: &RenderSettings,
     rng: &mut impl rand::Rng,
     output_buffer: &mut image::RgbaImage,
@@ -70,7 +70,7 @@ fn render_block(
 }
 
 fn render_sample(
-    point: screen_block::PixelPosition,
+    point: ScreenPoint,
     settings: &RenderSettings,
     rng: &mut impl rand::Rng,
 ) -> util::Rgba {

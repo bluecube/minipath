@@ -1,5 +1,5 @@
+use crate::geometry::*;
 use crate::image_buffer;
-use crate::screen_block;
 use crate::util;
 
 use image;
@@ -14,7 +14,7 @@ type PixelType = image::Rgba<u8>;
 
 pub struct ImageWindow {
     title: String,
-    size: screen_block::ScreenSize,
+    size: ScreenSize,
 
     context: sdl2::Sdl,
     event: sdl2::EventSubsystem,
@@ -29,11 +29,11 @@ impl ImageWindow {
         let context = sdl2::init()?;
         let event = context.event()?;
 
-        event.register_custom_event::<screen_block::ScreenBlock>()?;
+        event.register_custom_event::<ScreenBlock>()?;
 
         Ok(ImageWindow {
             title: String::from(title),
-            size: screen_block::ScreenSize::new(width, height),
+            size: ScreenSize::new(width, height),
 
             context,
             event,
@@ -90,8 +90,7 @@ impl image_buffer::ImageBuffer for ImageWindow {
                 } => redraw(&mut canvas, &texture)?,
 
                 _ => {
-                    if let Some(rendered) = event.as_user_event_type::<screen_block::ScreenBlock>()
-                    {
+                    if let Some(rendered) = event.as_user_event_type::<ScreenBlock>() {
                         update_texture(&self.img.lock(), &mut texture, rendered)?;
                         redraw(&mut canvas, &texture)?;
                     }
@@ -121,11 +120,7 @@ pub struct Writer<'a> {
 }
 
 impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
-    fn write(
-        &self,
-        block: screen_block::ScreenBlock,
-        block_buffer: &image::RgbaImage,
-    ) -> util::SimpleResult {
+    fn write(&self, block: ScreenBlock, block_buffer: &image::RgbaImage) -> util::SimpleResult {
         debug_assert!(block.width() <= block_buffer.width());
         debug_assert!(block.height() <= block_buffer.height());
 
@@ -142,7 +137,7 @@ impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
 fn update_texture(
     img: &image::RgbaImage,
     texture: &mut sdl2::render::Texture,
-    block: screen_block::ScreenBlock,
+    block: ScreenBlock,
 ) -> util::SimpleResult {
     let rect = sdl2::rect::Rect::new(
         block.min.x as i32,
