@@ -10,15 +10,31 @@ mod screen_block;
 mod util;
 
 #[cfg(feature = "gui")]
-fn make_output(w: u32, h: u32) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
-    Ok(Box::new(image_window::ImageWindow::new("minipath", w, h)?))
+fn make_output(
+    size: screen_block::ScreenSize,
+) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
+    Ok(Box::new(image_window::ImageWindow::new(
+        "minipath",
+        size.width,
+        size.height,
+    )?))
 }
 
 #[cfg(not(feature = "gui"))]
-fn make_output(w: u32, h: u32) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
-    Ok(Box::new(image_file_buffer::ImageFileBuffer::new(w, h)))
+fn make_output(
+    size: screen_block::ScreenSize,
+) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
+    Ok(Box::new(image_file_buffer::ImageFileBuffer::new(
+        size.width,
+        size.height,
+    )))
 }
 
 fn main() -> util::SimpleResult {
-    renderer::render(800, 600, 50, make_output)
+    let settings = renderer::RenderSettings {
+        image_size: euclid::size2(800, 600),
+        block_size: std::num::NonZeroU32::new(50).unwrap(),
+        sample_count: std::num::NonZeroU32::new(100).unwrap(),
+    };
+    renderer::render(&settings, make_output)
 }

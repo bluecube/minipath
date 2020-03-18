@@ -5,13 +5,21 @@ use crate::util;
 
 use screen_block::ScreenBlockExt;
 
-pub fn render<F>(width: u32, height: u32, chunk_size: u32, buffer_factory: F) -> util::SimpleResult
+#[derive(Copy, Clone, Debug)]
+pub struct RenderSettings {
+    pub image_size: screen_block::ScreenSize,
+    pub block_size: std::num::NonZeroU32,
+    pub sample_count: std::num::NonZeroU32,
+}
+
+pub fn render<F>(settings: &RenderSettings, buffer_factory: F) -> util::SimpleResult
 where
-    F: FnOnce(u32, u32) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>>,
+    F: FnOnce(screen_block::ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>>,
 {
-    let buffer = buffer_factory(width, height)?;
-    let size = screen_block::ScreenSize::new(width, height);
-    let block_iterator = screen_block::ScreenBlock::from_size(size).spiral_chunks(chunk_size);
+    let block_size = settings.block_size.get();
+    let buffer = buffer_factory(settings.image_size)?;
+    let block_iterator =
+        screen_block::ScreenBlock::from_size(settings.image_size).spiral_chunks(block_size);
 
     let buffer_writer = buffer.make_writer();
 
@@ -21,12 +29,12 @@ where
             use rand::SeedableRng;
             Ok((
                 rand::rngs::SmallRng::from_entropy(),
-                image::RgbaImage::new(chunk_size, chunk_size),
+                image::RgbaImage::new(block_size, block_size),
             ))
         },
         |state, block| -> util::SimpleResult<_> {
             let (ref mut rng, ref mut buffer) = state;
-            render_block(block, rng, buffer);
+            render_block(block, settings, rng, buffer);
             buffer_writer.write(block, buffer)?;
 
             Ok(())
@@ -44,22 +52,42 @@ where
     Ok(())
 }
 
-fn render_block<T: rand::Rng>(
+fn render_block(
     block: screen_block::ScreenBlock,
-    rng: &mut T,
+    settings: &RenderSettings,
+    rng: &mut impl rand::Rng,
     output_buffer: &mut image::RgbaImage,
 ) {
-    // Pretend to render a block
-    std::thread::sleep(std::time::Duration::from_millis(rng.gen_range(500, 2000)));
+    for point in block.internal_points() {
+        let mut pixel_sum = util::Rgba::new(0f64, 0f64, 0f64, 0f64);
+        for _i in 0..settings.sample_count.get() {
+            pixel_sum += render_sample(point, settings, rng);
+        }
+        let pixel = pixel_sum * (1.0 / settings.sample_count.get() as f64);
+        let buffer_position = point - block.min;
+        output_buffer.put_pixel(buffer_position.x, buffer_position.y, color_to_image(pixel));
+    }
+}
 
-    *output_buffer = image::RgbaImage::from_pixel(
-        block.width(),
-        block.height(),
-        image::Rgba([
-            rng.gen_range(0, 255),
-            rng.gen_range(0, 255),
-            rng.gen_range(0, 255),
-            rng.gen_range(128, 255),
-        ]),
-    );
+fn render_sample(
+    point: screen_block::PixelPosition,
+    settings: &RenderSettings,
+    rng: &mut impl rand::Rng,
+) -> util::Rgba {
+    util::Rgba::new(
+        rng.gen_range(0.0, 1.0),
+        rng.gen_range(0.0, 1.0),
+        rng.gen_range(0.0, 1.0),
+        rng.gen_range(0.0, 1.0),
+    )
+}
+
+/// Maps a 0-1 f64 rgba pixel to pixel type compatible with module image.
+pub fn color_to_image(color: util::Rgba) -> image::Rgba<u8> {
+    image::Rgba([
+        (color.r * 255.0).round().max(0.0).min(255.0) as u8,
+        (color.g * 255.0).round().max(0.0).min(255.0) as u8,
+        (color.b * 255.0).round().max(0.0).min(255.0) as u8,
+        (color.a * 255.0).round().max(0.0).min(255.0) as u8,
+    ])
 }
