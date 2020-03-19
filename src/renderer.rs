@@ -1,25 +1,29 @@
+use crate::camera;
+use crate::geometry::*;
 use crate::image_buffer;
 use crate::parallel_for_each;
 use crate::screen_block;
-use crate::geometry::*;
 use crate::util;
 
 use screen_block::ScreenBlockExt;
 
 #[derive(Copy, Clone, Debug)]
 pub struct RenderSettings {
-    pub image_size: ScreenSize,
     pub block_size: std::num::NonZeroU32,
     pub sample_count: std::num::NonZeroU32,
 }
 
-pub fn render<F>(settings: &RenderSettings, buffer_factory: F) -> util::SimpleResult
+pub fn render<F>(
+    camera: &camera::Camera,
+    settings: &RenderSettings,
+    buffer_factory: F,
+) -> util::SimpleResult
 where
     F: FnOnce(ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>>,
 {
     let block_size = settings.block_size.get();
-    let buffer = buffer_factory(settings.image_size)?;
-    let block_iterator = ScreenBlock::from_size(settings.image_size).spiral_chunks(block_size);
+    let buffer = buffer_factory(camera.get_resolution())?;
+    let block_iterator = ScreenBlock::from_size(camera.get_resolution()).spiral_chunks(block_size);
 
     let buffer_writer = buffer.make_writer();
 
@@ -34,7 +38,7 @@ where
         },
         |state, block| -> util::SimpleResult<_> {
             let (ref mut rng, ref mut buffer) = state;
-            render_block(block, settings, rng, buffer);
+            render_block(block, camera, settings, rng, buffer);
             buffer_writer.write(block, buffer)?;
 
             Ok(())
@@ -54,6 +58,7 @@ where
 
 fn render_block(
     block: ScreenBlock,
+    camera: &camera::Camera,
     settings: &RenderSettings,
     rng: &mut impl rand::Rng,
     output_buffer: &mut image::RgbaImage,
@@ -61,7 +66,7 @@ fn render_block(
     for point in block.internal_points() {
         let mut pixel_sum = util::Rgba::new(0f64, 0f64, 0f64, 0f64);
         for _i in 0..settings.sample_count.get() {
-            pixel_sum += render_sample(point, settings, rng);
+            pixel_sum += render_sample(point, camera, settings, rng);
         }
         let pixel = pixel_sum * (1.0 / settings.sample_count.get() as f64);
         let buffer_position = point - block.min;
@@ -71,6 +76,7 @@ fn render_block(
 
 fn render_sample(
     point: ScreenPoint,
+    camera: &camera::Camera,
     settings: &RenderSettings,
     rng: &mut impl rand::Rng,
 ) -> util::Rgba {
