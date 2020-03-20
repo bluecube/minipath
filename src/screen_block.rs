@@ -249,34 +249,8 @@ fn divide_round_up(
 #[cfg(test)]
 mod test {
     use super::*;
-    use proptest::prelude::*;
     use proptest_attr_macro::proptest;
-
-    #[derive(Copy, Clone, Debug)]
-    struct ScreenBlockWrapper(ScreenBlock);
-
-    impl std::ops::Deref for ScreenBlockWrapper {
-        type Target = ScreenBlock;
-        fn deref(&self) -> &ScreenBlock {
-            &self.0
-        }
-    }
-
-    impl Arbitrary for ScreenBlockWrapper {
-        type Parameters = ();
-        type Strategy = proptest::strategy::BoxedStrategy<Self>;
-        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-            const RANGE: std::ops::Range<u32> = 0..100u32;
-            (RANGE, RANGE, RANGE, RANGE)
-                .prop_map(|coords| {
-                    ScreenBlockWrapper(euclid::Box2D::new(
-                        euclid::Point2D::new(coords.0, coords.1),
-                        euclid::Point2D::new(coords.2, coords.3),
-                    ))
-                })
-                .boxed()
-        }
-    }
+    use crate::geometry::test::*;
 
     fn abs_difference(x: u32, y: u32) -> u32 {
         if x < y {
@@ -338,13 +312,13 @@ mod test {
     /// Tests that pixel iterator covers all pixels in a block
     #[proptest]
     fn pixel_iterator_covers_all(block: ScreenBlockWrapper) {
-        check_pixel_iterator_covers_block(block.internal_points(), *block);
+        check_pixel_iterator_covers_block(block.0.internal_points(), block.0);
     }
 
     /// Tests that pixel iterator is a well behaved exact length iterator
     #[proptest]
     fn pixel_iterator_exact_length(block: ScreenBlockWrapper) {
-        check_exact_length(block.internal_points(), safe_area(*block) as usize);
+        check_exact_length(block.0.internal_points(), safe_area(block.0) as usize);
     }
 
     /// Tests that sub blocks of a spiral chunk iterator when iterated over cover all pixels in
@@ -352,10 +326,10 @@ mod test {
     #[proptest]
     fn spiral_iterator_covers_all(block: ScreenBlockWrapper, chunk_size_minus_one: u8) {
         check_pixel_iterator_covers_block(
-            block
+            block.0
                 .spiral_chunks(chunk_size_minus_one as u32 + 1)
                 .flat_map(|chunk| chunk.internal_points()),
-            *block,
+            block.0,
         );
     }
 
@@ -365,7 +339,7 @@ mod test {
     /// good enough, then it's good enough.
     #[proptest]
     fn spiral_iterator_is_spiral(block: ScreenBlockWrapper, chunk_size_minus_one: u8) {
-        let mut it = block.spiral_chunks(chunk_size_minus_one as u32 + 1);
+        let mut it = block.0.spiral_chunks(chunk_size_minus_one as u32 + 1);
 
         if let Some(first) = it.next() {
             let mut prev_distance = 0;
@@ -383,13 +357,13 @@ mod test {
     /// Tests that pixel iterator is a well behaved exact length iterator
     #[proptest]
     fn spiral_iterator_exact_length(block: ScreenBlockWrapper, chunk_size_minus_one: u8) {
-        let it = block.spiral_chunks(chunk_size_minus_one as u32 + 1);
+        let it = block.0.spiral_chunks(chunk_size_minus_one as u32 + 1);
         check_exact_length(it, it.len()); // Using first reported length as a baseline, because it's easy
     }
 
     #[proptest]
     #[should_panic]
     fn zero_sized_chunks(block: ScreenBlockWrapper) {
-        block.spiral_chunks(0);
+        block.0.spiral_chunks(0);
     }
 }
