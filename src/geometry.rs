@@ -53,4 +53,35 @@ pub mod test {
                 })
         }
     }
+
+    arbitrary_wrapper! {
+        ScreenSizeWrapper(ScreenSize) -> {
+            const RANGE: std::ops::Range<u32> = 0..100u32;
+            (RANGE, RANGE)
+                .prop_map(|coords| ScreenSizeWrapper(ScreenSize::new(coords.0, coords.1)))
+        }
+    }
+
+    arbitrary_wrapper! {
+        WorldVectorWrapper(WorldVector) -> {
+            (any::<f64>(), any::<f64>(), any::<f64>())
+                .prop_map(|coords| {
+                    WorldVectorWrapper(WorldVector::new(coords.0, coords.1, coords.2))
+                })
+        }
+    }
+
+    arbitrary_wrapper! {
+        WorldPointWrapper(WorldPoint) -> {
+            any::<WorldVectorWrapper>()
+                .prop_map(|v| WorldPointWrapper(v.to_point()))
+        }
+    }
+
+    arbitrary_wrapper! {
+        PositiveWorldDistance(WorldDistance) -> {
+            proptest::num::f64::POSITIVE
+                .prop_map(|n| PositiveWorldDistance(WorldDistance::new(n)))
+        }
+    }
 }
