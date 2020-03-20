@@ -18,12 +18,31 @@ pub mod test {
     use super::*;
     use proptest::prelude::*;
 
-    #[derive(Copy, Clone, Debug)]
-    pub struct ScreenBlockWrapper(pub ScreenBlock);
-    impl Arbitrary for ScreenBlockWrapper {
-        type Parameters = ();
-        type Strategy = proptest::strategy::BoxedStrategy<Self>;
-        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+    /// Helper macro that creates a wrapper arnound a type that implemetns Deref and Arbitary
+    macro_rules! arbitrary_wrapper {
+        ( $wrapper_name:ident ( $type:ty ) -> $block:block ) => {
+            #[derive(Copy, Clone, Debug)]
+            pub struct $wrapper_name(pub $type);
+
+            impl std::ops::Deref for $wrapper_name {
+                type Target = $type;
+                fn deref(&self) -> &$type {
+                    &self.0
+                }
+            }
+
+            impl Arbitrary for $wrapper_name {
+                type Parameters = ();
+                type Strategy = proptest::strategy::BoxedStrategy<Self>;
+                fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+                    $block.boxed()
+                }
+            }
+        };
+    }
+
+    arbitrary_wrapper! {
+        ScreenBlockWrapper(ScreenBlock) -> {
             const RANGE: std::ops::Range<u32> = 0..100u32;
             (RANGE, RANGE, RANGE, RANGE)
                 .prop_map(|coords| {
@@ -32,7 +51,6 @@ pub mod test {
                         ScreenPoint::new(coords.2, coords.3),
                     ))
                 })
-                .boxed()
         }
     }
 }
