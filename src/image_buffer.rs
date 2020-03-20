@@ -22,6 +22,7 @@ pub trait ImageBufferWriter: Sync + Send {
 #[cfg(test)]
 pub mod test {
     use super::*;
+    use crate::screen_block;
 
     fn create_test_pattern(block: ScreenBlock) -> image::RgbaImage {
         assert!(!block.is_empty_or_negative());
@@ -45,7 +46,7 @@ pub mod test {
 
         use rand::seq::SliceRandom;
         use rand::SeedableRng;
-        use ScreenBlockExt;
+        use screen_block::ScreenBlockExt;
 
         let mut blocks: Vec<_> = block.spiral_chunks(chunk_size).collect();
         let mut rng = rand::rngs::StdRng::seed_from_u64(0); // we just need a single non-trivial shuffle
@@ -72,7 +73,7 @@ pub mod test {
         chunk_size: u32,
         buffer: &mut dyn ImageBuffer,
     ) {
-        let size = screen_block::ScreenSize::new(width, height);
+        let size = ScreenSize::new(width, height);
         let block = ScreenBlock::from_size(size);
 
         fill_image_buffer(block, chunk_size, buffer);
