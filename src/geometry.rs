@@ -59,7 +59,7 @@ pub mod test {
 
     arbitrary_wrapper! {
         ScreenSizeWrapper(ScreenSize) -> {
-            const RANGE: std::ops::Range<u32> = 0..100u32;
+            const RANGE: std::ops::Range<u32> = 1..100u32;
             (RANGE, RANGE)
                 .prop_map(|coords| ScreenSize::new(coords.0, coords.1))
         }
