@@ -8,6 +8,7 @@ pub type WorldPoint = euclid::Point3D<f64, WorldSpace>;
 pub type WorldVector = euclid::Vector3D<f64, WorldSpace>;
 pub type WorldDistance = euclid::Length<f64, WorldSpace>;
 
+#[derive(Copy, Clone, Debug)]
 pub struct Ray {
     pub origin: WorldPoint,
     pub direction: WorldVector,
