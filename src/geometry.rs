@@ -36,7 +36,9 @@ pub mod test {
                 type Parameters = ();
                 type Strategy = proptest::strategy::BoxedStrategy<Self>;
                 fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-                    $block.boxed()
+                    $block
+                        .prop_map(|x| $wrapper_name(x))
+                        .boxed()
                 }
             }
         };
@@ -47,10 +49,10 @@ pub mod test {
             const RANGE: std::ops::Range<u32> = 0..100u32;
             (RANGE, RANGE, RANGE, RANGE)
                 .prop_map(|coords| {
-                    ScreenBlockWrapper(ScreenBlock::new(
+                    ScreenBlock::new(
                         ScreenPoint::new(coords.0, coords.1),
                         ScreenPoint::new(coords.2, coords.3),
-                    ))
+                    )
                 })
         }
     }
@@ -59,7 +61,7 @@ pub mod test {
         ScreenSizeWrapper(ScreenSize) -> {
             const RANGE: std::ops::Range<u32> = 0..100u32;
             (RANGE, RANGE)
-                .prop_map(|coords| ScreenSizeWrapper(ScreenSize::new(coords.0, coords.1)))
+                .prop_map(|coords| ScreenSize::new(coords.0, coords.1))
         }
     }
 
@@ -67,7 +69,7 @@ pub mod test {
         WorldVectorWrapper(WorldVector) -> {
             (any::<f64>(), any::<f64>(), any::<f64>())
                 .prop_map(|coords| {
-                    WorldVectorWrapper(WorldVector::new(coords.0, coords.1, coords.2))
+                    WorldVector::new(coords.0, coords.1, coords.2)
                 })
         }
     }
@@ -75,14 +77,14 @@ pub mod test {
     arbitrary_wrapper! {
         WorldPointWrapper(WorldPoint) -> {
             any::<WorldVectorWrapper>()
-                .prop_map(|v| WorldPointWrapper(v.to_point()))
+                .prop_map(|v| v.to_point())
         }
     }
 
     arbitrary_wrapper! {
         PositiveWorldDistance(WorldDistance) -> {
             proptest::num::f64::POSITIVE
-                .prop_map(|n| PositiveWorldDistance(WorldDistance::new(n)))
+                .prop_map(|n| WorldDistance::new(n))
         }
     }
 }
