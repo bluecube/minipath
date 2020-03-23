@@ -36,12 +36,18 @@ pub mod test {
                 type Parameters = ();
                 type Strategy = proptest::strategy::BoxedStrategy<Self>;
                 fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-                    $block
-                        .prop_map(|x| $wrapper_name(x))
-                        .boxed()
+                    $block.prop_map(|x| $wrapper_name(x)).boxed()
                 }
             }
         };
+    }
+
+    fn simple_float() -> BoxedStrategy<f64> {
+        any::<i64>().prop_map(|n| n as f64 * 1e-6).boxed()
+    }
+
+    fn simple_positive_float() -> BoxedStrategy<f64> {
+        any::<u64>().prop_map(|n| n as f64 * 1e-6).boxed()
     }
 
     arbitrary_wrapper! {
@@ -66,25 +72,35 @@ pub mod test {
     }
 
     arbitrary_wrapper! {
-        WorldVectorWrapper(WorldVector) -> {
-            (any::<f64>(), any::<f64>(), any::<f64>())
-                .prop_map(|coords| {
-                    WorldVector::new(coords.0, coords.1, coords.2)
-                })
+        NonzeroWorldVectorWrapper(WorldVector) -> {
+            (simple_float(), simple_float(), simple_float())
+                .prop_filter_map(
+                    "vector is zero",
+                    |coords| {
+                        let vector = WorldVector::new(coords.0, coords.1, coords.2);
+                        if vector.length() < 1e-6 {
+                            None
+                        } else {
+                            Some(vector)
+                        }
+                    })
+
         }
     }
 
     arbitrary_wrapper! {
         WorldPointWrapper(WorldPoint) -> {
-            any::<WorldVectorWrapper>()
-                .prop_map(|v| v.to_point())
+            (simple_float(), simple_float(), simple_float())
+                .prop_map(|coords| {
+                    WorldPoint::new(coords.0, coords.1, coords.2)
+                })
         }
     }
 
     arbitrary_wrapper! {
-        PositiveWorldDistance(WorldDistance) -> {
-            proptest::num::f64::POSITIVE
-                .prop_map(|n| WorldDistance::new(n))
+        PositiveWorldDistanceWrapper(WorldDistance) -> {
+            simple_positive_float()
+                .prop_map(|x| WorldDistance::new(x))
         }
     }
 }
