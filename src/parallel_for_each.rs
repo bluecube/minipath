@@ -209,6 +209,7 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use assert2::assert;
     use panic_control;
     use proptest::prelude::*;
     use proptest_attr_macro::proptest;
@@ -269,7 +270,7 @@ mod test {
             0..n,
             |_worker_id| -> Result<_, ()> { Ok(std::thread::current().id()) },
             |state_thread_id, _i| -> Result<(), ()> {
-                assert_eq!(&std::thread::current().id(), state_thread_id);
+                assert!(&std::thread::current().id() == state_thread_id);
                 Ok(())
             },
             || -> Result<_, ()> { Ok(Continue::Continue) },
@@ -301,10 +302,7 @@ mod test {
         .unwrap();
 
         assert!(helper.callback_called_check());
-        assert_eq!(
-            sum.load(Ordering::Relaxed),
-            if n > 0 { n * (n - 1) / 2 } else { 0 }
-        );
+        assert!(sum.load(Ordering::Relaxed) == if n > 0 { n * (n - 1) / 2 } else { 0 });
     }
 
     /// Sums a range using pralellel_for_each, keeping the partial sums in shared state, checks
@@ -343,10 +341,7 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(
-            sum.load(Ordering::Relaxed),
-            if n > 0 { n * (n - 1) / 2 } else { 0 }
-        );
+        assert!(sum.load(Ordering::Relaxed) == if n > 0 { n * (n - 1) / 2 } else { 0 });
     }
 
     /// Checks that the jobs are actually running in different threads by
@@ -397,7 +392,7 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(*count_waiting.lock().unwrap(), n);
+        assert!(*count_waiting.lock().unwrap() == n);
     }
 
     /// Checks that the iteration stops when background function returns Stop and that finished
@@ -450,7 +445,7 @@ mod test {
         match result {
             Err(e) => {
                 if let Some(string) = e.downcast_ref::<&str>() {
-                    assert_eq!(string, &"Don't panic!");
+                    assert!(string == &"Don't panic!");
                     assert!(helper.callback_called_check());
                 } else {
                     panic!("Got non-string panic");
@@ -489,7 +484,7 @@ mod test {
         match result {
             Err(e) => {
                 if let Some(string) = e.downcast_ref::<&str>() {
-                    assert_eq!(string, &"Don't panic!");
+                    assert!(string == &"Don't panic!");
                     assert!(helper.callback_called_check());
                 } else {
                     panic!("Got non-string panic");
@@ -521,7 +516,7 @@ mod test {
         match result {
             Err(e) => {
                 if let Some(string) = e.downcast_ref::<&str>() {
-                    assert_eq!(string, &"Don't panic!");
+                    assert!(string == &"Don't panic!");
                     assert!(helper.callback_called_check());
                 } else {
                     panic!("Got non-string panic");
@@ -558,7 +553,7 @@ mod test {
         match result {
             Err(e) => {
                 if let Some(string) = e.downcast_ref::<&str>() {
-                    assert_eq!(string, &"Don't panic!");
+                    assert!(string == &"Don't panic!");
                     assert!(helper.callback_called_check());
                 } else {
                     panic!("Got non-string panic");
@@ -606,7 +601,7 @@ mod test {
         )
         .unwrap();
 
-        assert_eq!(sum.load(Ordering::Relaxed), n);
+        assert!(sum.load(Ordering::Relaxed) == n);
     }
 
     /// Checks that the iteration stops when background function returns Stop.
@@ -632,7 +627,7 @@ mod test {
 
         match result {
             Err(ParallelForEachError::InitTaskError { source }) => {
-                assert_eq!(source, "None shall pass!");
+                assert!(source == "None shall pass!");
                 assert!(helper.callback_called_check());
             }
             Err(e) => panic!("We didn't get the right error ({})", e),
@@ -664,7 +659,7 @@ mod test {
 
         match result {
             Err(ParallelForEachError::WorkerTaskError { source }) => {
-                assert_eq!(source, "None shall pass!");
+                assert!(source == "None shall pass!");
                 assert!(helper.callback_called_check());
             }
             Err(e) => panic!("We didn't get the right error ({})", e),
@@ -691,7 +686,7 @@ mod test {
 
         match result {
             Err(ParallelForEachError::BackgroundTaskError { source }) => {
-                assert_eq!(source, "None shall pass!");
+                assert!(source == "None shall pass!");
                 assert!(helper.callback_called_check());
             }
             Err(e) => panic!("We didn't get the right error ({})", e),

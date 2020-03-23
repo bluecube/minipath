@@ -23,6 +23,7 @@ pub trait ImageBufferWriter: Sync + Send {
 pub mod test {
     use super::*;
     use crate::screen_block;
+    use assert2::assert;
 
     fn create_test_pattern(block: ScreenBlock) -> image::RgbaImage {
         assert!(!block.is_empty_or_negative());
@@ -41,8 +42,8 @@ pub mod test {
 
     /// Creates an image buffer and randomly (but single threadedly) fills it with test patern.
     fn fill_image_buffer(block: ScreenBlock, chunk_size: u32, buffer: &mut dyn ImageBuffer) {
-        assert_eq!(block.min.x, 0);
-        assert_eq!(block.min.y, 0);
+        assert!(block.min.x == 0);
+        assert!(block.min.y == 0);
 
         use rand::seq::SliceRandom;
         use rand::SeedableRng;
@@ -90,7 +91,7 @@ pub mod test {
         let pattern = create_test_pattern(block);
 
         let img_rgba = img_dyn.as_rgba8().unwrap();
-        assert_eq!(img_rgba.dimensions(), pattern.dimensions());
+        assert!(img_rgba.dimensions() == pattern.dimensions());
         assert!(img_rgba
             .pixels()
             .zip(pattern.pixels())

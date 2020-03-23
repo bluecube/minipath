@@ -250,6 +250,7 @@ fn divide_round_up(
 mod test {
     use super::*;
     use crate::geometry::test::*;
+    use assert2::assert;
     use proptest_attr_macro::proptest;
 
     fn abs_difference(x: u32, y: u32) -> u32 {
@@ -272,10 +273,10 @@ mod test {
         iterator: &T,
         expected_length: usize,
     ) {
-        assert_eq!(iterator.len(), expected_length);
+        assert!(iterator.len() == expected_length);
         let (min, max) = iterator.size_hint();
-        assert_eq!(min, expected_length);
-        assert_eq!(max.unwrap(), expected_length);
+        assert!(min == expected_length);
+        assert!(max.unwrap() == expected_length);
     }
 
     /// Goes through the whole iterator and checks that at every step iterator's size hint is equal
