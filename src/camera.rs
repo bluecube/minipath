@@ -5,16 +5,16 @@ use rand_distr;
 pub struct Camera {
     center: WorldPoint,
 
-    // Direction vectors are always perpendicular to each other and normalized
+    resolution: ScreenSize,
+
     forward: WorldVector,
     up: WorldVector,
     right: WorldVector,
-
-    resolution: ScreenSize,
-    focus_distance: WorldDistance,
-    pixel_scale: euclid::Scale<f64, ScreenSpace, WorldSpace>,
     film_origin_offset: WorldVector,
+    pixel_scale: euclid::Scale<f64, ScreenSpace, WorldSpace>,
     lens_radius: WorldDistance,
+    lens_weight: euclid::Scale<f64, WorldSpace, WorldSpace>,
+
 }
 
 impl Camera {
@@ -33,12 +33,14 @@ impl Camera {
         assert_ne!(forward, WorldVector::zero());
         let forward = forward.normalize();
         assert_ne!(up, WorldVector::zero());
-        let right = forward.cross(up).normalize();
+        let up = up.normalize();
+        let right = forward.cross(up);
         assert_ne!(
             right,
             WorldVector::zero(),
             "`up` and `forward` must be linearly independent"
         );
+        let right = right.normalize();
         let up = right.cross(forward).normalize();
 
         assert!(resolution.width > 0);
@@ -50,21 +52,25 @@ impl Camera {
 
         let pixel_scale = film_width / euclid::Length::new(resolution.width as f64);
         let film_origin_uv = resolution.to_vector().to_f64() * pixel_scale / 2.0;
-        let film_origin_offset =
-            forward * focal_length.get() + up * film_origin_uv.x - right * film_origin_uv.y;
+        let film_origin_offset = -forward * focal_length.get()
+            - up * (film_origin_uv.y - 0.5)
+            + right * (film_origin_uv.x - 0.5);
 
         let lens_radius = focal_length / (2.0 * f_number);
+        let lens_weight = focal_length / focus_distance;
 
         Camera {
             center,
+
+            resolution,
+
             forward,
             up,
             right,
-            resolution,
-            focus_distance,
-            pixel_scale,
             film_origin_offset,
+            pixel_scale,
             lens_radius,
+            lens_weight,
         }
     }
 
@@ -80,20 +86,133 @@ impl Camera {
         let film_u = euclid::Length::new(point.x as f64 + rng.gen_range(-0.5, 0.5));
         let film_v = euclid::Length::new(point.y as f64 + rng.gen_range(-0.5, 0.5));
         let film_point_offset = self.film_origin_offset
-            - self.up * (film_v * self.pixel_scale).get()
-            + self.right * (film_u * self.pixel_scale).get();
-
-        // The point that in focus for this film point for all points on the lens
-        let focus_vector =
-            film_point_offset * (self.focus_distance / film_point_offset.dot(self.forward)).get();
+            + self.up * (film_v * self.pixel_scale).get()
+            - self.right * (film_u * self.pixel_scale).get();
 
         let lens_uv: [f64; 2] = rand_distr::UnitDisc.sample(rng);
-        let lens_vector =
-            self.right * (self.lens_radius * lens_uv[0]).get() + self.up * (self.lens_radius * lens_uv[1]).get();
+        let lens_vector = self.right * (self.lens_radius * lens_uv[0]).get()
+            - self.up * (self.lens_radius * lens_uv[1]).get();
 
-        Ray {
+        let direction = lens_vector * self.lens_weight - film_point_offset;
+
+        let ray = Ray {
             origin: self.center + lens_vector,
-            direction: (focus_vector - lens_vector).normalize(),
+            direction: direction.normalize(),
+        };
+        ray
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use assert2::assert;
+    use proptest::prelude::*;
+    use proptest_attr_macro::proptest;
+
+    use crate::geometry::test::*;
+
+    impl Arbitrary for Camera {
+        type Parameters = ();
+        type Strategy = proptest::strategy::BoxedStrategy<Self>;
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            (
+                any::<WorldPointWrapper>(),
+                any::<NonzeroWorldVectorWrapper>(),
+                any::<NonzeroWorldVectorWrapper>(),
+                any::<ScreenSizeWrapper>(),
+                any::<PositiveWorldDistanceWrapper>(),
+                any::<PositiveWorldDistanceWrapper>(),
+                any::<PositiveWorldDistanceWrapper>(), // Because of the conditioning we already have for postivie world distance
+                any::<PositiveWorldDistanceWrapper>(),
+            )
+                .prop_filter_map(
+                    "camera up and forward vectors are linearly dependent",
+                    |tuple| {
+                        if tuple.1.normalize().cross(tuple.2.normalize()) == WorldVector::zero() {
+                            None
+                        } else {
+                            Some(Camera::new(
+                                *tuple.0,
+                                *tuple.1,
+                                *tuple.2,
+                                *tuple.3,
+                                *tuple.4,
+                                *tuple.5,
+                                tuple.6.get(),
+                                *tuple.7,
+                            ))
+                        }
+                    },
+                )
+                .boxed()
         }
+    }
+
+    #[derive(Copy, Clone, Debug)]
+    struct CameraAndPoint(Camera, ScreenPoint);
+
+    impl Arbitrary for CameraAndPoint {
+        type Parameters = ();
+        type Strategy = proptest::strategy::BoxedStrategy<Self>;
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            any::<Camera>()
+                .prop_flat_map(|camera| {
+                    (
+                        Just(camera),
+                        0..camera.get_resolution().width,
+                        0..camera.get_resolution().height,
+                    )
+                })
+                .prop_map(|camera_and_xy| {
+                    CameraAndPoint(
+                        camera_and_xy.0,
+                        ScreenPoint::new(camera_and_xy.1, camera_and_xy.2),
+                    )
+                })
+                .boxed()
+        }
+    }
+
+    /// Checks that output ray always aims roughly along the forward vector
+    #[proptest]
+    fn correct_direction(camera_and_point: CameraAndPoint) {
+        let camera = camera_and_point.0;
+        let point = camera_and_point.1;
+        let ray = camera.sample_ray(point, &mut rand::thread_rng());
+
+        assert!(
+            ray.direction.dot(camera.forward) > 0.0,
+            "ray = {:?}, camera = {:?}",
+            ray,
+            camera
+        );
+    }
+
+    #[test]
+    fn left_right_up_down() {
+        // X goes right, Y goes away, Z goes up
+        let camera = Camera::new(
+            WorldPoint::new(0.0, 0.0, 0.0),
+            WorldVector::new(0.0, 1.0, 0.0),
+            WorldVector::new(0.0, 0.0, 1.0),
+            ScreenSize::new(800, 600),
+            WorldDistance::new(36e-3),
+            WorldDistance::new(50e-3),
+            std::f64::INFINITY,
+            WorldDistance::new(2.0),
+        );
+        let mut rng = rand::thread_rng();
+
+        let ray_center = camera.sample_ray(ScreenPoint::new(400, 300), &mut rng);
+        let ray_left = camera.sample_ray(ScreenPoint::new(0, 300), &mut rng);
+        let ray_right = camera.sample_ray(ScreenPoint::new(799, 300), &mut rng);
+        let ray_up = camera.sample_ray(ScreenPoint::new(400, 0), &mut rng);
+        let ray_down = camera.sample_ray(ScreenPoint::new(400, 599), &mut rng);
+
+        assert!(ray_left.direction.x < ray_center.direction.x);
+        assert!(ray_right.direction.x > ray_center.direction.x);
+        assert!(ray_up.direction.z > ray_center.direction.z);
+        assert!(ray_down.direction.z < ray_center.direction.z);
     }
 }
