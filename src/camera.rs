@@ -51,10 +51,11 @@ impl Camera {
         assert!(focus_distance.get() > 0.0);
 
         let pixel_scale = film_width / euclid::Length::new(resolution.width as f64);
-        let film_origin_uv = resolution.to_vector().to_f64() * pixel_scale / 2.0;
+        let resolution_minus_one = ScreenSize::new(resolution.width - 1, resolution.height - 1);
+        let film_origin_uv = resolution_minus_one.to_f64().to_vector() * pixel_scale / 2.0;
         let film_origin_offset = -forward * focal_length.get()
-            - up * (film_origin_uv.y - 0.5)
-            + right * (film_origin_uv.x - 0.5);
+            + right * film_origin_uv.x
+            - up * film_origin_uv.y;
 
         let lens_radius = focal_length / (2.0 * f_number);
         let lens_weight = focal_length / focus_distance;
@@ -91,7 +92,7 @@ impl Camera {
 
         let lens_uv: [f64; 2] = rand_distr::UnitDisc.sample(rng);
         let lens_vector = self.right * (self.lens_radius * lens_uv[0]).get()
-            - self.up * (self.lens_radius * lens_uv[1]).get();
+            + self.up * (self.lens_radius * lens_uv[1]).get();
 
         let direction = lens_vector * self.lens_weight - film_point_offset;
 
@@ -210,6 +211,8 @@ mod test {
         let ray_up = camera.sample_ray(ScreenPoint::new(400, 0), &mut rng);
         let ray_down = camera.sample_ray(ScreenPoint::new(400, 599), &mut rng);
 
+        assert!(ray_center.direction.x.abs() < 1e-3);
+        assert!(ray_center.direction.z.abs() < 1e-3);
         assert!(ray_left.direction.x < ray_center.direction.x);
         assert!(ray_right.direction.x > ray_center.direction.x);
         assert!(ray_up.direction.z > ray_center.direction.z);
