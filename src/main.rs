@@ -33,14 +33,14 @@ fn make_output(size: ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::Ima
 
 fn main() -> util::SimpleResult {
     let camera = camera::Camera::new(
-        WorldPoint::new(0.0, 0.0, 0.0),
-        WorldVector::new(0.0, 0.0, 1.0),
+        WorldPoint::new(0.0, 0.0, 2.0),
         WorldVector::new(0.0, 1.0, 0.0),
+        WorldVector::new(0.0, 0.0, 1.0),
         ScreenSize::new(800, 600),
         WorldDistance::new(36e-3),
         WorldDistance::new(50e-3),
         4.8,
-        WorldDistance::new(2.0),
+        WorldDistance::new(5.0),
     );
     let settings = renderer::RenderSettings {
         block_size: std::num::NonZeroU32::new(50).unwrap(),

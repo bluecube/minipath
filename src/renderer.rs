@@ -80,12 +80,21 @@ fn render_sample(
     settings: &RenderSettings,
     rng: &mut impl rand::Rng,
 ) -> util::Rgba {
-    util::Rgba::new(
-        rng.gen_range(0.0, 1.0),
-        rng.gen_range(0.0, 1.0),
-        rng.gen_range(0.0, 1.0),
-        rng.gen_range(0.0, 1.0),
-    )
+    let ray = camera.sample_ray(point, rng);
+
+    let floor_hit_distance = -ray.origin.z / ray.direction.z;
+    if floor_hit_distance < 0.0 {
+        util::Rgba::new(0.0, 0.0, 0.0, 0.0)
+    } else {
+        const TILE_SIZE: f64 = 1.0;
+        const LINE_WIDTH: f64 = 1e-2;
+        let floor_hit_point = ray.origin + ray.direction * floor_hit_distance;
+        if floor_hit_point.x.abs() % TILE_SIZE < LINE_WIDTH || floor_hit_point.y.abs() % TILE_SIZE < LINE_WIDTH {
+            util::Rgba::new(0.0, 0.0, 0.0, 1.0)
+        } else {
+            util::Rgba::new(0.7, 0.8, 1.0, 1.0)
+        }
+    }
 }
 
 /// Maps a 0-1 f64 rgba pixel to pixel type compatible with module image.
