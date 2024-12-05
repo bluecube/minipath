@@ -17,9 +17,9 @@ pub fn render<F>(
     camera: &camera::Camera,
     settings: &RenderSettings,
     buffer_factory: F,
-) -> util::SimpleResult
+) -> anyhow::Result<()>
 where
-    F: FnOnce(ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>>,
+    F: FnOnce(ScreenSize) -> anyhow::Result<Box<dyn image_buffer::ImageBuffer>>,
 {
     let block_size = settings.block_size.get();
     let buffer = buffer_factory(camera.get_resolution())?;
@@ -29,21 +29,21 @@ where
 
     parallel_for_each::parallel_for_each(
         block_iterator,
-        |_worker_id| -> Result<_, util::NoError> {
+        |_worker_id| {
             use rand::SeedableRng;
             Ok((
                 rand::rngs::SmallRng::from_entropy(),
                 image::RgbaImage::new(block_size, block_size),
             ))
         },
-        |state, block| -> util::SimpleResult<_> {
+        |state, block| {
             let (ref mut rng, ref mut buffer) = state;
             render_block(block, camera, settings, rng, buffer);
             buffer_writer.write(block, buffer)?;
 
             Ok(())
         },
-        || -> util::SimpleResult<_> {
+        || {
             buffer.run()?;
             Ok(parallel_for_each::Continue::Stop)
         },
@@ -89,7 +89,9 @@ fn render_sample(
         const TILE_SIZE: f64 = 1.0;
         const LINE_WIDTH: f64 = 1e-2;
         let floor_hit_point = ray.origin + ray.direction * floor_hit_distance;
-        if floor_hit_point.x.abs() % TILE_SIZE < LINE_WIDTH || floor_hit_point.y.abs() % TILE_SIZE < LINE_WIDTH {
+        if floor_hit_point.x.abs() % TILE_SIZE < LINE_WIDTH
+            || floor_hit_point.y.abs() % TILE_SIZE < LINE_WIDTH
+        {
             util::Rgba::new(0.0, 0.0, 0.0, 1.0)
         } else {
             util::Rgba::new(0.7, 0.8, 1.0, 1.0)

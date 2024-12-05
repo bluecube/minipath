@@ -21,10 +21,12 @@ parking_lot = "0.10.0"
 crossbeam-utils = "0.7.2"
 num_cpus = "1.12.0"
 scopeguard = "1.1.0"
+anyhow = "1.0.94"
+test-strategy = "0.4.0"
 
 [dev-dependencies]
 proptest = "0.9.5"
 proptest-attr-macro = "0.1.0"
 panic-control = "0.1.4"
 tempfile = "3.1.0"
-assert2 = "0.1.2"
+assert2 = "0.3.15"

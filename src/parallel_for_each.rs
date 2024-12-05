@@ -18,68 +18,23 @@ pub enum WorkerCount {
     Manual(NonZeroUsize),
 }
 
-#[derive(Debug)]
-pub enum ParallelForEachError<Ei, Ew, Eb>
-where
-    Ei: ErrorSource,
-    Ew: ErrorSource,
-    Eb: ErrorSource,
-{
-    InitTaskError { source: Ei },
-    WorkerTaskError { source: Ew },
-    BackgroundTaskError { source: Eb },
-}
-
-impl<Ei, Ew, Eb> std::fmt::Display for ParallelForEachError<Ei, Ew, Eb>
-where
-    Ei: ErrorSource,
-    Ew: ErrorSource,
-    Eb: ErrorSource,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Self::InitTaskError { .. } => write!(f, "Init task failed"),
-            Self::WorkerTaskError { .. } => write!(f, "Worker task failed"),
-            Self::BackgroundTaskError { .. } => write!(f, "Background task failed"),
-        }
-    }
-}
-
-impl<Ei, Ew, Eb> std::error::Error for ParallelForEachError<Ei, Ew, Eb>
-where
-    Ei: ErrorSource,
-    Ew: ErrorSource,
-    Eb: ErrorSource,
-{
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InitTaskError { source } => source.source(),
-            Self::WorkerTaskError { source } => source.source(),
-            Self::BackgroundTaskError { source } => source.source(),
-        }
-    }
-}
-
 /// Runs a worker function for each item of an iterator in multiple threads.
 /// Allows a per-thread initialization function and a background function that runs in the main thread
 /// while the workers are processing.
-pub fn parallel_for_each<It, Fi, Fw, Fb, Ff, Ei, Ew, Eb, State>(
+pub fn parallel_for_each<It, Fi, Fw, Fb, Ff, State>(
     iterator: It,
     init_fun: Fi,
     worker_fun: Fw,
     background_fun: Fb,
     finished_callback: Ff,
     worker_count: WorkerCount,
-) -> Result<(), ParallelForEachError<Ei, Ew, Eb>>
+) -> anyhow::Result<()>
 where
     It: Iterator + Send,
-    Fi: Fn(usize) -> Result<State, Ei> + Sync + Send,
-    Fw: Fn(&mut State, It::Item) -> Result<(), Ew> + Sync + Send,
-    Fb: FnOnce() -> Result<Continue, Eb>,
+    Fi: Fn(usize) -> anyhow::Result<State> + Sync,
+    Fw: Fn(&mut State, It::Item) -> anyhow::Result<()> + Sync,
+    Fb: FnOnce() -> anyhow::Result<Continue>,
     Ff: Fn() -> () + Sync + Send,
-    Ei: ErrorSource,
-    Ew: ErrorSource,
-    Eb: ErrorSource,
 {
     struct State<T> {
         iterator: Option<T>,
@@ -120,9 +75,9 @@ where
     let worker_fun = &worker_fun;
     let finished_callback = &finished_callback;
 
-    crossbeam_utils::thread::scope(|scope| -> Result<(), ParallelForEachError<Ei, Ew, Eb>> {
+    crossbeam_utils::thread::scope(|scope| -> anyhow::Result<()> {
         let handles = (0..worker_count).map(|worker_id| {
-            scope.spawn(move |_| -> Result<(), ParallelForEachError<Ei, Ew, Eb>> {
+            scope.spawn(move |_| -> anyhow::Result<()> {
                 let mut state = scopeguard::guard(state.lock(), |mut state| {
                     state.stop(); // Stop all threads if we're running out from the loop (even when panicking)
                     state.threads_running -= 1;
@@ -130,8 +85,7 @@ where
                         parking_lot::lock_api::MutexGuard::unlocked(&mut state, || finished_callback());
                     }
                 });
-                let mut thread_state = parking_lot::lock_api::MutexGuard::unlocked(&mut state, || init_fun(worker_id))
-                    .map_err(|source| ParallelForEachError::InitTaskError{source})?;
+                let mut thread_state = parking_lot::lock_api::MutexGuard::unlocked(&mut state, || init_fun(worker_id))?;
 
                 #[allow(clippy::while_let_loop)]
                 loop {
@@ -139,8 +93,7 @@ where
                         Some(item) => item,
                         None => break,
                     };
-                    parking_lot::lock_api::MutexGuard::unlocked(&mut state, || worker_fun(&mut thread_state, item))
-                        .map_err(|source| ParallelForEachError::WorkerTaskError{source})?
+                    parking_lot::lock_api::MutexGuard::unlocked(&mut state, || worker_fun(&mut thread_state, item))?
                 };
 
                 Ok(())
@@ -151,8 +104,7 @@ where
             state.lock().stop()
         }
 
-        let background_result = background_fun()
-            .map_err(|source| ParallelForEachError::BackgroundTaskError{source});
+        let background_result = background_fun();
 
         match background_result {
             Ok(Continue::Continue) => {},
@@ -197,24 +149,16 @@ impl ErrorSource for dyn std::error::Error + Send + Sync + 'static {
     }
 }
 
-impl<T> ErrorSource for T
-where
-    T: std::fmt::Debug + Sync + Send,
-{
-    default fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+    use anyhow::bail;
     use assert2::assert;
     use panic_control;
     use proptest::prelude::*;
-    use proptest_attr_macro::proptest;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::time::{Duration, Instant};
+    use test_strategy::proptest;
 
     const TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -231,11 +175,11 @@ mod test {
             }
         }
 
-        fn workers_running_check(&self) -> Result<(), String> {
+        fn workers_running_check(&self) -> anyhow::Result<()> {
             if self.finished.load(Ordering::Relaxed) {
-                Err("Thread is running even though the end callback was encountered".into())
+                bail!("Thread is running even though the end callback was encountered")
             } else if Instant::now() > self.latest_end_time {
-                Err("Time limit exceeded".into())
+                bail!("Time limit exceeded")
             } else {
                 Ok(())
             }
@@ -268,12 +212,12 @@ mod test {
         let n = n as u32;
         parallel_for_each(
             0..n,
-            |_worker_id| -> Result<_, ()> { Ok(std::thread::current().id()) },
-            |state_thread_id, _i| -> Result<(), ()> {
+            |_worker_id| Ok(std::thread::current().id()),
+            |state_thread_id, _i| {
                 assert!(&std::thread::current().id() == state_thread_id);
                 Ok(())
             },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || Ok(Continue::Continue),
             || {},
             worker_count,
         )
@@ -290,12 +234,12 @@ mod test {
         parallel_for_each(
             0..n,
             |_worker_id| helper.workers_running_check(),
-            |_state, i| -> Result<(), String> {
+            |_state, i| {
                 helper.workers_running_check()?;
                 sum.fetch_add(i, Ordering::Relaxed);
                 Ok(())
             },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || Ok(Continue::Continue),
             || helper.finished_callback(),
             worker_count,
         )
@@ -325,17 +269,17 @@ mod test {
 
         parallel_for_each(
             0..n,
-            |_worker_id| -> Result<_, ()> {
+            |_worker_id| {
                 Ok(State {
                     local_sum: 0,
                     global_sum: &sum,
                 })
             },
-            |state, i| -> Result<(), ()> {
+            |state, i| {
                 state.local_sum += i;
                 Ok(())
             },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || Ok(Continue::Continue),
             || {},
             worker_count,
         )
@@ -366,7 +310,7 @@ mod test {
 
         parallel_for_each(
             0..n,
-            |_worker_id| -> Result<(), String> {
+            |_worker_id| {
                 let mut count_waiting = count_waiting.lock().unwrap();
                 *count_waiting += 1;
                 if *count_waiting >= n {
@@ -377,16 +321,16 @@ mod test {
                         let result = cond.wait_timeout(count_waiting, timeout).unwrap();
                         count_waiting = result.0;
                         if result.1.timed_out() {
-                            return Err("Timed out".into());
+                            bail!("Timed out");
                         } else if *count_waiting >= n {
                             return Ok(());
                         }
                     }
-                    Err("wtf?".into())
+                    bail!("wtf?")
                 }
             },
-            |_state, _i| -> Result<(), ()> { Ok(()) },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
+            |_state, _i| Ok(()),
+            || Ok(Continue::Continue),
             || {},
             worker_count,
         )
@@ -405,7 +349,7 @@ mod test {
             0..,
             |_worker_id| helper.workers_running_check(),
             |_state, _i| helper.workers_running_check(),
-            || -> Result<_, String> {
+            || {
                 // Here we can check that the threads have not finished yet, because the
                 // iterator is infinite and only waiting for this method to return
                 helper.workers_running_check()?;
@@ -427,7 +371,7 @@ mod test {
         let result = std::panic::catch_unwind(|| {
             parallel_for_each(
                 0..,
-                |worker_id| -> Result<(), String> {
+                |worker_id| {
                     helper.workers_running_check()?;
                     if worker_id == 0 {
                         panic_control::disable_hook_in_current_thread();
@@ -436,8 +380,8 @@ mod test {
                         Ok(())
                     }
                 },
-                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
+                |_state, _i| helper.workers_running_check(),
+                || Ok(Continue::Continue),
                 || helper.finished_callback(),
                 worker_count,
             )
@@ -464,11 +408,11 @@ mod test {
         let result = std::panic::catch_unwind(|| {
             parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), String> {
+                |_worker_id| {
                     panic_control::disable_hook_in_current_thread();
                     helper.workers_running_check()
                 },
-                |_state, i| -> Result<(), String> {
+                |_state, i| {
                     helper.workers_running_check()?;
                     if i == n {
                         panic!("Don't panic!");
@@ -476,7 +420,7 @@ mod test {
                         Ok(())
                     }
                 },
-                || -> Result<_, ()> { Ok(Continue::Continue) },
+                || Ok(Continue::Continue),
                 || helper.finished_callback(),
                 worker_count,
             )
@@ -502,9 +446,9 @@ mod test {
         let result = std::panic::catch_unwind(|| {
             parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), String> { helper.workers_running_check() },
-                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
-                || -> Result<_, String> {
+                |_worker_id| helper.workers_running_check(),
+                |_state, _i| helper.workers_running_check(),
+                || {
                     helper.workers_running_check()?;
                     panic_control::disable_hook_in_current_thread();
                     panic!("Don't panic!");
@@ -534,12 +478,12 @@ mod test {
         let result = std::panic::catch_unwind(|| {
             parallel_for_each(
                 0..,
-                |_worker_id| -> Result<(), String> {
+                |_worker_id| {
                     panic_control::disable_hook_in_current_thread();
                     helper.workers_running_check()
                 },
-                |_state, _i| -> Result<(), String> { helper.workers_running_check() },
-                || -> Result<_, String> {
+                |_state, _i| helper.workers_running_check(),
+                || {
                     helper.workers_running_check()?;
                     Ok(Continue::Stop)
                 },
@@ -590,12 +534,12 @@ mod test {
 
         parallel_for_each(
             UglyIterator(n + 1),
-            |_worker_id| -> Result<(), ()> { Ok(()) },
-            |_state, i| -> Result<(), ()> {
+            |_worker_id| Ok(()),
+            |_state, i| {
                 sum.fetch_add(i, Ordering::Relaxed);
                 Ok(())
             },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || Ok(Continue::Continue),
             || {},
             worker_count,
         )
@@ -611,28 +555,22 @@ mod test {
 
         let result = parallel_for_each(
             0..,
-            |worker_id| -> Result<(), String> {
+            |worker_id| {
                 helper.workers_running_check()?;
                 if worker_id == 0 {
-                    Err("None shall pass!".to_string())
+                    bail!("None shall pass!")
                 } else {
                     Ok(())
                 }
             },
-            |_state, _i| -> Result<(), String> { helper.workers_running_check() },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
+            |_state, _i| helper.workers_running_check(),
+            || Ok(Continue::Continue),
             || helper.finished_callback(),
             worker_count,
         );
 
-        match result {
-            Err(ParallelForEachError::InitTaskError { source }) => {
-                assert!(source == "None shall pass!");
-                assert!(helper.callback_called_check());
-            }
-            Err(e) => panic!("We didn't get the right error ({})", e),
-            Ok(()) => panic!("We didn't get an error!"),
-        }
+        let msg = format!("{}", result.err().unwrap());
+        assert!(msg == "None shall pass!");
     }
 
     /// Checks that the iteration stops when background function returns Stop.
@@ -643,28 +581,22 @@ mod test {
 
         let result = parallel_for_each(
             0..,
-            |_worker_id| -> Result<(), String> { helper.workers_running_check() },
-            |_state, i| -> Result<(), String> {
+            |_worker_id| helper.workers_running_check(),
+            |_state, i| {
                 helper.workers_running_check()?;
                 if i == n {
-                    Err("None shall pass!".to_string())
+                    bail!("None shall pass!")
                 } else {
                     Ok(())
                 }
             },
-            || -> Result<_, ()> { Ok(Continue::Continue) },
+            || Ok(Continue::Continue),
             || helper.finished_callback(),
             worker_count,
         );
 
-        match result {
-            Err(ParallelForEachError::WorkerTaskError { source }) => {
-                assert!(source == "None shall pass!");
-                assert!(helper.callback_called_check());
-            }
-            Err(e) => panic!("We didn't get the right error ({})", e),
-            Ok(()) => panic!("We didn't get an error!"),
-        }
+        let msg = format!("{}", result.err().unwrap());
+        assert!(msg == "None shall pass!");
     }
 
     /// Checks that the iteration stops when background function returns Stop.
@@ -674,23 +606,17 @@ mod test {
 
         let result = parallel_for_each(
             0..,
-            |_worker_id| -> Result<(), String> { helper.workers_running_check() },
-            |_state, _i| -> Result<(), String> { helper.workers_running_check() },
-            || -> Result<_, String> {
+            |_worker_id| helper.workers_running_check(),
+            |_state, _i| helper.workers_running_check(),
+            || {
                 helper.workers_running_check()?;
-                Err("None shall pass!".to_string())
+                bail!("None shall pass!");
             },
             || helper.finished_callback(),
             worker_count,
         );
 
-        match result {
-            Err(ParallelForEachError::BackgroundTaskError { source }) => {
-                assert!(source == "None shall pass!");
-                assert!(helper.callback_called_check());
-            }
-            Err(e) => panic!("We didn't get the right error ({})", e),
-            Ok(()) => panic!("We didn't get an error!"),
-        }
+        let msg = format!("{}", result.err().unwrap());
+        assert!(msg == "None shall pass!");
     }
 }

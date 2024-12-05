@@ -1,6 +1,5 @@
 use crate::geometry::*;
 use crate::image_buffer;
-use crate::util;
 
 use image;
 use parking_lot;
@@ -22,7 +21,7 @@ impl ImageFileBuffer {
 }
 
 impl image_buffer::ImageBuffer for ImageFileBuffer {
-    fn run(&self) -> util::SimpleResult {
+    fn run(&self) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -31,7 +30,7 @@ impl image_buffer::ImageBuffer for ImageFileBuffer {
         Box::new(Writer(&self.img))
     }
 
-    fn save(&self, path: &std::path::Path) -> util::SimpleResult {
+    fn save(&self, path: &std::path::Path) -> anyhow::Result<()> {
         self.img.lock().save(path)?;
         Ok(())
     }
@@ -40,7 +39,7 @@ impl image_buffer::ImageBuffer for ImageFileBuffer {
 pub struct Writer<'a>(&'a parking_lot::Mutex<image::RgbaImage>);
 
 impl<'a> image_buffer::ImageBufferWriter for Writer<'a> {
-    fn write(&self, block: ScreenBlock, block_buffer: &image::RgbaImage) -> util::SimpleResult {
+    fn write(&self, block: ScreenBlock, block_buffer: &image::RgbaImage) -> anyhow::Result<()> {
         debug_assert!(block.width() <= block_buffer.width());
         debug_assert!(block.height() <= block_buffer.height());
 

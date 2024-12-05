@@ -1,5 +1,3 @@
-#![feature(specialization)]
-
 mod camera;
 mod geometry;
 mod image_buffer;
@@ -15,7 +13,7 @@ mod util;
 use geometry::*;
 
 #[cfg(feature = "gui")]
-fn make_output(size: ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
+fn make_output(size: ScreenSize) -> anyhow::Result<Box<dyn image_buffer::ImageBuffer>> {
     Ok(Box::new(image_window::ImageWindow::new(
         "minipath",
         size.width,
@@ -24,14 +22,14 @@ fn make_output(size: ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::Ima
 }
 
 #[cfg(not(feature = "gui"))]
-fn make_output(size: ScreenSize) -> util::SimpleResult<Box<dyn image_buffer::ImageBuffer>> {
+fn make_output(size: ScreenSize) -> anyhow::Result<Box<dyn image_buffer::ImageBuffer>> {
     Ok(Box::new(image_file_buffer::ImageFileBuffer::new(
         size.width,
         size.height,
     )))
 }
 
-fn main() -> util::SimpleResult {
+fn main() -> anyhow::Result<()> {
     let camera = camera::Camera::new(
         WorldPoint::new(0.0, 0.0, 2.0),
         WorldVector::new(0.0, 1.0, 0.0),

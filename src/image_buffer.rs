@@ -1,20 +1,19 @@
 use crate::geometry::*;
-use crate::util;
 
 /// Trait for an image buffer that can be accessed from multiple threads
 pub trait ImageBuffer {
     /// Runs event loop belonging to this image, if necessary.
-    fn run(&self) -> util::SimpleResult;
+    fn run(&self) -> anyhow::Result<()>;
 
     /// Creates a writer function that can write data into the image from different thread.
     fn make_writer<'a>(&'a self) -> Box<dyn ImageBufferWriter + 'a>;
 
     /// Saves the content of the buffer to a file
-    fn save(&self, path: &std::path::Path) -> util::SimpleResult;
+    fn save(&self, path: &std::path::Path) -> anyhow::Result<()>;
 }
 
 pub trait ImageBufferWriter: Sync + Send {
-    fn write(&self, block: ScreenBlock, block_buffer: &image::RgbaImage) -> util::SimpleResult;
+    fn write(&self, block: ScreenBlock, block_buffer: &image::RgbaImage) -> anyhow::Result<()>;
 }
 
 /// This is an implementation of the unit tests that is shared for all impls of
