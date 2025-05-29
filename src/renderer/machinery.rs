@@ -35,7 +35,7 @@ pub fn render<Callback: Fn() + Send + Sync + 'static>(
         image: Mutex::new(image),
 
         tile_ordering: ScreenBlock::from_size(camera.get_resolution())
-            .spiral_tiles(settings.tile_size),
+            .tile_ordering(settings.tile_size),
         next_tile_index: AtomicUsize::new(0),
     });
     let progress_callback = Arc::new(progress_callback);

@@ -1,5 +1,6 @@
 use euclid::*;
 use ordered_float::OrderedFloat;
+use rand_distr::Distribution as _;
 use std::iter::FusedIterator;
 use std::num::NonZeroU32;
 
@@ -7,7 +8,7 @@ use crate::geometry::*;
 
 pub trait ScreenBlockExt {
     fn internal_points(&self) -> InternalPoints;
-    fn spiral_tiles(&self, tile_size: NonZeroU32) -> Vec<ScreenBlock>;
+    fn tile_ordering(&self, tile_size: NonZeroU32) -> Vec<ScreenBlock>;
 }
 
 impl ScreenBlockExt for ScreenBlock {
@@ -26,11 +27,12 @@ impl ScreenBlockExt for ScreenBlock {
         }
     }
 
-    /// Create a vec sub blocks in (roughly) spiral order, starting in the middle of the block.
+    /// Create a vec sub blocks in a randomized order, starting in the middle of the block.
     /// Tiles are tile_size * tile_size large, except on the bottom and right side of the
     /// block, where they may be clipped if tile size doesn't evenly divide block size.
     /// May panic if tile size is small (1 or 2) and block size is very large.
-    fn spiral_tiles(&self, tile_size: NonZeroU32) -> Vec<ScreenBlock> {
+    /// This could be much simpler, but I like how the pattern looks when rendering :)
+    fn tile_ordering(&self, tile_size: NonZeroU32) -> Vec<ScreenBlock> {
         if self.is_empty() {
             return Vec::new();
         }
@@ -45,24 +47,27 @@ impl ScreenBlockExt for ScreenBlock {
 
         let mut tiles = Vec::with_capacity(x_iter.size_hint().0 * y_iter.size_hint().0);
 
+        let randomness_scale = center.to_vector().length() * 0.1;
+        let distribution = rand_distr::Exp::new(1.0 / randomness_scale).unwrap();
+
         for (tile_min_y, tile_max_y) in y_iter {
             for (tile_min_x, tile_max_x) in divide_range(min_x, max_x, tile_size) {
-                tiles.push(euclid::Box2D::new(
-                    euclid::Point2D::new(tile_min_x, tile_min_y),
-                    euclid::Point2D::new(tile_max_x, tile_max_y),
+                let tile = euclid::Box2D::new(
+                    ScreenPoint::new(tile_min_x, tile_min_y),
+                    ScreenPoint::new(tile_max_x, tile_max_y),
+                );
+
+                let to_center = center - tile.center().cast::<f32>();
+
+                tiles.push((
+                    tile,
+                    OrderedFloat(to_center.length() + distribution.sample(&mut rand::rng())),
                 ));
             }
         }
 
-        tiles.sort_unstable_by_key(|tile| {
-            let to_center = center - tile.center().cast::<f32>();
-            (
-                OrderedFloat(to_center.square_length()),
-                OrderedFloat(to_center.angle_from_x_axis().to_degrees()),
-            )
-        });
-
-        tiles
+        tiles.sort_unstable_by_key(|(_tile, key)| key.clone());
+        tiles.into_iter().map(|(tile, _key)| tile).collect()
     }
 }
 
@@ -208,13 +213,12 @@ mod test {
         check_exact_length(block.internal_points(), safe_area(*block) as usize);
     }
 
-    /// Tests that sub blocks of a spiral tile iterator when iterated over cover all pixels in
-    /// a block
+    /// Tests that sub blocks of a tile ordering when iterated over cover all pixels in a block
     #[proptest]
-    fn spiral_iterator_covers_all(block: ScreenBlockWrapper, tile_size_minus_one: u8) {
+    fn tile_ordering_covers_all(block: ScreenBlockWrapper, tile_size_minus_one: u8) {
         check_pixel_iterator_covers_block(
             block
-                .spiral_tiles(NonZeroU32::new(tile_size_minus_one as u32 + 1).unwrap())
+                .tile_ordering(NonZeroU32::new(tile_size_minus_one as u32 + 1).unwrap())
                 .iter()
                 .flat_map(|tile| tile.internal_points()),
             *block,
