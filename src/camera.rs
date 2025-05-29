@@ -11,9 +11,9 @@ pub struct Camera {
     up: WorldVector,
     right: WorldVector,
     film_origin_offset: WorldVector,
-    pixel_scale: euclid::Scale<f64, ScreenSpace, WorldSpace>,
+    pixel_scale: euclid::Scale<f32, ScreenSpace, WorldSpace>,
     lens_radius: WorldDistance,
-    lens_weight: euclid::Scale<f64, WorldSpace, WorldSpace>,
+    lens_weight: euclid::Scale<f32, WorldSpace, WorldSpace>,
 }
 
 impl Camera {
@@ -26,7 +26,7 @@ impl Camera {
         resolution: ScreenSize,
         film_width: WorldDistance,
         focal_length: WorldDistance,
-        f_number: f64,
+        f_number: f32,
         focus_distance: WorldDistance,
     ) -> Self {
         assert_ne!(forward, WorldVector::zero());
@@ -49,9 +49,9 @@ impl Camera {
         assert!(f_number > 0.0);
         assert!(focus_distance.get() > 0.0);
 
-        let pixel_scale = film_width / euclid::Length::new(resolution.width as f64);
+        let pixel_scale = film_width / euclid::Length::new(resolution.width as f32);
         let resolution_minus_one = ScreenSize::new(resolution.width - 1, resolution.height - 1);
-        let film_origin_uv = resolution_minus_one.to_f64().to_vector() * pixel_scale / 2.0;
+        let film_origin_uv = resolution_minus_one.to_f32().to_vector() * pixel_scale / 2.0;
         let film_origin_offset =
             -forward * focal_length.get() + right * film_origin_uv.x - up * film_origin_uv.y;
 
@@ -80,13 +80,13 @@ impl Camera {
     /// Samples a new ray from the camera for the given image pixel.
     pub fn sample_ray(&self, point: &ScreenPoint, rng: &mut impl rand::Rng) -> Ray {
         //TODO: Figure out a better reconstruction kernel for the pixel than a square
-        let film_u = euclid::Length::new(point.x as f64 + rng.random_range(-0.5..=0.5));
-        let film_v = euclid::Length::new(point.y as f64 + rng.random_range(-0.5..=0.5));
+        let film_u = euclid::Length::new(point.x as f32 + rng.random_range(-0.5..=0.5));
+        let film_v = euclid::Length::new(point.y as f32 + rng.random_range(-0.5..=0.5));
         let film_point_offset = self.film_origin_offset
             + self.up * (film_v * self.pixel_scale).get()
             - self.right * (film_u * self.pixel_scale).get();
 
-        let lens_uv: [f64; 2] = rand_distr::UnitDisc.sample(rng);
+        let lens_uv: [f32; 2] = rand_distr::UnitDisc.sample(rng);
         let lens_vector = self.right * (self.lens_radius * lens_uv[0]).get()
             + self.up * (self.lens_radius * lens_uv[1]).get();
 
@@ -196,7 +196,7 @@ mod test {
             ScreenSize::new(800, 600),
             WorldDistance::new(36e-3),
             WorldDistance::new(50e-3),
-            std::f64::INFINITY,
+            std::f32::INFINITY,
             WorldDistance::new(2.0),
         );
         let mut rng = rand::rng();

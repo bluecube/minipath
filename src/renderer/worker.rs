@@ -29,12 +29,13 @@ impl Worker {
         tile: &ScreenBlock,
         buffer: &mut RgbaImage,
     ) {
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         for point in tile.internal_points() {
-            let mut pixel_sum = Rgba::new(0f64, 0f64, 0f64, 0f64);
+            let mut pixel_sum = Rgba::new(0.0, 0.0, 0.0, 0.0);
             for _i in 0..settings.sample_count.get() {
                 pixel_sum += self.render_sample(scene, camera, settings, &point);
             }
-            let pixel = pixel_sum * (1.0 / settings.sample_count.get() as f64);
+            let pixel = pixel_sum * (1.0 / settings.sample_count.get() as f32);
 
             let buffer_position = point - tile.min;
             buffer.put_pixel(buffer_position.x, buffer_position.y, color_to_image(pixel));
@@ -54,8 +55,8 @@ impl Worker {
         if floor_hit_distance < 0.0 {
             Rgba::new(0.0, 0.0, 0.0, 0.0)
         } else {
-            const TILE_SIZE: f64 = 1.0;
-            const LINE_WIDTH: f64 = 1e-2;
+            const TILE_SIZE: f32 = 1.0;
+            const LINE_WIDTH: f32 = 1e-2;
             let floor_hit_point = ray.origin + ray.direction * floor_hit_distance;
             if floor_hit_point.x.abs() % TILE_SIZE < LINE_WIDTH
                 || floor_hit_point.y.abs() % TILE_SIZE < LINE_WIDTH
@@ -68,7 +69,7 @@ impl Worker {
     }
 }
 
-/// Maps a 0-1 f64 rgba pixel to pixel type compatible with module image.
+/// Maps a 0-1 f32 rgba pixel to pixel type compatible with module image.
 pub fn color_to_image(color: Rgba) -> image::Rgba<u8> {
     image::Rgba([
         (color.r * 255.0).round().max(0.0).min(255.0) as u8,

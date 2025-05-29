@@ -9,4 +9,4 @@ impl std::fmt::Display for NoError {
 
 impl std::error::Error for NoError {}
 
-pub type Rgba = rgb::RGBA<f64>;
+pub type Rgba = rgb::RGBA<f32>;

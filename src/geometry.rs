@@ -4,9 +4,10 @@ pub type ScreenSize = euclid::Size2D<u32, ScreenSpace>;
 pub type ScreenBlock = euclid::Box2D<u32, ScreenSpace>;
 
 pub struct WorldSpace;
-pub type WorldPoint = euclid::Point3D<f64, WorldSpace>;
-pub type WorldVector = euclid::Vector3D<f64, WorldSpace>;
-pub type WorldDistance = euclid::Length<f64, WorldSpace>;
+pub type WorldPoint = euclid::Point3D<f32, WorldSpace>;
+pub type WorldVector = euclid::Vector3D<f32, WorldSpace>;
+pub type WorldDistance = euclid::Length<f32, WorldSpace>;
+pub type WorldBox = euclid::Box3D<f32, WorldSpace>;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Ray {
@@ -42,12 +43,12 @@ pub mod test {
         };
     }
 
-    fn simple_float() -> BoxedStrategy<f64> {
-        any::<i64>().prop_map(|n| n as f64 * 1e-6).boxed()
+    fn simple_float() -> BoxedStrategy<f32> {
+        any::<i64>().prop_map(|n| n as f32 * 1e-6).boxed()
     }
 
-    fn simple_positive_float() -> BoxedStrategy<f64> {
-        any::<u64>().prop_map(|n| n as f64 * 1e-6).boxed()
+    fn simple_positive_float() -> BoxedStrategy<f32> {
+        any::<u64>().prop_map(|n| n as f32 * 1e-6).boxed()
     }
 
     arbitrary_wrapper! {
