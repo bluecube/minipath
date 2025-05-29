@@ -1,6 +1,6 @@
 [package]
 name = "minipath"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Kuba Marek <blue.cube@seznam.cz>"]
 description = "Toy path tracer, focused more on the toy part, than the path tracer part"
 edition = "2024"
