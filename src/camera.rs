@@ -176,7 +176,7 @@ mod test {
     fn correct_direction(camera_and_point: CameraAndPoint) {
         let camera = camera_and_point.0;
         let point = camera_and_point.1;
-        let ray = camera.sample_ray(&point, &mut rand::thread_rng());
+        let ray = camera.sample_ray(&point, &mut rand::rng());
 
         assert!(
             ray.direction.dot(camera.forward) > 0.0,
@@ -199,7 +199,7 @@ mod test {
             std::f64::INFINITY,
             WorldDistance::new(2.0),
         );
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let ray_center = camera.sample_ray(&ScreenPoint::new(400, 300), &mut rng);
         let ray_left = camera.sample_ray(&ScreenPoint::new(0, 300), &mut rng);
