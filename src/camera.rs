@@ -1,5 +1,5 @@
 use crate::geometry::*;
-use rand_distr;
+use rand_distr::{self, Distribution as _};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Camera {
@@ -14,7 +14,6 @@ pub struct Camera {
     pixel_scale: euclid::Scale<f64, ScreenSpace, WorldSpace>,
     lens_radius: WorldDistance,
     lens_weight: euclid::Scale<f64, WorldSpace, WorldSpace>,
-
 }
 
 impl Camera {
@@ -53,9 +52,8 @@ impl Camera {
         let pixel_scale = film_width / euclid::Length::new(resolution.width as f64);
         let resolution_minus_one = ScreenSize::new(resolution.width - 1, resolution.height - 1);
         let film_origin_uv = resolution_minus_one.to_f64().to_vector() * pixel_scale / 2.0;
-        let film_origin_offset = -forward * focal_length.get()
-            + right * film_origin_uv.x
-            - up * film_origin_uv.y;
+        let film_origin_offset =
+            -forward * focal_length.get() + right * film_origin_uv.x - up * film_origin_uv.y;
 
         let lens_radius = focal_length / (2.0 * f_number);
         let lens_weight = focal_length / focus_distance;
@@ -80,12 +78,10 @@ impl Camera {
     }
 
     /// Samples a new ray from the camera for the given image pixel.
-    pub fn sample_ray(&self, point: ScreenPoint, rng: &mut impl rand::Rng) -> Ray {
-        use rand::distributions::Distribution;
-
+    pub fn sample_ray(&self, point: &ScreenPoint, rng: &mut impl rand::Rng) -> Ray {
         //TODO: Figure out a better reconstruction kernel for the pixel than a square
-        let film_u = euclid::Length::new(point.x as f64 + rng.gen_range(-0.5, 0.5));
-        let film_v = euclid::Length::new(point.y as f64 + rng.gen_range(-0.5, 0.5));
+        let film_u = euclid::Length::new(point.x as f64 + rng.random_range(-0.5..=0.5));
+        let film_v = euclid::Length::new(point.y as f64 + rng.random_range(-0.5..=0.5));
         let film_point_offset = self.film_origin_offset
             + self.up * (film_v * self.pixel_scale).get()
             - self.right * (film_u * self.pixel_scale).get();
@@ -180,7 +176,7 @@ mod test {
     fn correct_direction(camera_and_point: CameraAndPoint) {
         let camera = camera_and_point.0;
         let point = camera_and_point.1;
-        let ray = camera.sample_ray(point, &mut rand::thread_rng());
+        let ray = camera.sample_ray(&point, &mut rand::thread_rng());
 
         assert!(
             ray.direction.dot(camera.forward) > 0.0,
@@ -205,11 +201,11 @@ mod test {
         );
         let mut rng = rand::thread_rng();
 
-        let ray_center = camera.sample_ray(ScreenPoint::new(400, 300), &mut rng);
-        let ray_left = camera.sample_ray(ScreenPoint::new(0, 300), &mut rng);
-        let ray_right = camera.sample_ray(ScreenPoint::new(799, 300), &mut rng);
-        let ray_up = camera.sample_ray(ScreenPoint::new(400, 0), &mut rng);
-        let ray_down = camera.sample_ray(ScreenPoint::new(400, 599), &mut rng);
+        let ray_center = camera.sample_ray(&ScreenPoint::new(400, 300), &mut rng);
+        let ray_left = camera.sample_ray(&ScreenPoint::new(0, 300), &mut rng);
+        let ray_right = camera.sample_ray(&ScreenPoint::new(799, 300), &mut rng);
+        let ray_up = camera.sample_ray(&ScreenPoint::new(400, 0), &mut rng);
+        let ray_down = camera.sample_ray(&ScreenPoint::new(400, 599), &mut rng);
 
         assert!(ray_center.direction.x.abs() < 1e-3);
         assert!(ray_center.direction.z.abs() < 1e-3);
