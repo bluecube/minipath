@@ -105,7 +105,7 @@ mod test {
     use super::*;
     use assert2::assert;
     use proptest::prelude::*;
-    use proptest_attr_macro::proptest;
+    use test_strategy::proptest;
 
     use crate::geometry::test::*;
 

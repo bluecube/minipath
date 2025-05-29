@@ -28,5 +28,5 @@ eframe = "0.31.1"
 
 [dev-dependencies]
 proptest = "1.6.0"
-proptest-attr-macro = "1.0.0"
 assert2 = "0.3.15"
+test-strategy = "0.4.1"

@@ -154,7 +154,7 @@ mod test {
     use super::*;
     use crate::geometry::test::*;
     use assert2::assert;
-    use proptest_attr_macro::proptest;
+    use test_strategy::proptest;
 
     fn safe_area(block: ScreenBlock) -> u32 {
         if block.is_empty() { 0 } else { block.area() }
