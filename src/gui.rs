@@ -1,21 +1,22 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    ops::Deref,
+    sync::{Arc, Mutex},
 };
 
-use eframe::{App, CreationContext, egui};
-use egui::ColorImage;
-use image::RgbaImage;
+use eframe::{App, CreationContext, Frame, egui};
+use egui::{CentralPanel, Color32, ColorImage, Image, TextureOptions};
+use image::{GenericImageView, Rgba};
 use minipath::{
     Camera, RenderProgress, RenderSettings, Scene,
-    geometry::{ScreenSize, WorldDistance, WorldPoint, WorldVector},
+    geometry::{ScreenBlock, ScreenSize, WorldDistance, WorldPoint, WorldVector},
     render,
 };
 
 pub struct MinipathGui {
     render_progress: RenderProgress,
     texture: egui::TextureHandle,
-    dirty: Arc<AtomicBool>,
+    started: Arc<Mutex<Vec<ScreenBlock>>>,
+    dirty: Arc<Mutex<Vec<ScreenBlock>>>,
 }
 
 impl MinipathGui {
@@ -25,43 +26,78 @@ impl MinipathGui {
         render_settings: RenderSettings,
         cc: &CreationContext<'_>,
     ) -> anyhow::Result<Self> {
-        let dirty_flag = Arc::new(AtomicBool::new(false));
-
-        let callback = {
-            let dirty_flag = Arc::clone(&dirty_flag);
+        let started = Arc::new(Mutex::new(Vec::new()));
+        let tile_started_callback = {
+            let started = Arc::clone(&started);
             let ctx = cc.egui_ctx.clone();
-            move || {
-                dirty_flag.store(true, Ordering::Release);
+            move |tile| {
+                started.lock().unwrap().push(tile);
                 ctx.request_repaint();
             }
         };
-        let render_progress = render(scene, camera, render_settings, callback)?;
+        let dirty = Arc::new(Mutex::new(Vec::new()));
+        let tile_finished_callback = {
+            let dirty = Arc::clone(&dirty);
+            let ctx = cc.egui_ctx.clone();
+            move |tile| {
+                dirty.lock().unwrap().push(tile);
+                ctx.request_repaint();
+            }
+        };
+        let render_progress = render(
+            scene,
+            camera,
+            render_settings,
+            tile_started_callback,
+            tile_finished_callback,
+        )?;
         let texture = cc.egui_ctx.load_texture(
             "rendered",
-            create_image(&render_progress.image().lock().unwrap()),
-            egui::TextureOptions::LINEAR,
+            create_image(render_progress.image().lock().unwrap().deref()),
+            TextureOptions::LINEAR,
         );
 
         Ok(MinipathGui {
             render_progress,
             texture,
-            dirty: dirty_flag,
+            started,
+            dirty,
         })
     }
 }
 
 impl App for MinipathGui {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.dirty.swap(false, Ordering::AcqRel) {
-            self.texture.set(
-                create_image(&self.render_progress.image().lock().unwrap()),
-                egui::TextureOptions::LINEAR,
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        for tile in self.started.lock().unwrap().drain(..) {
+            self.texture.set_partial(
+                [tile.min.x as usize, tile.min.y as usize],
+                create_in_progress_tile(tile.width(), tile.height()),
+                TextureOptions::LINEAR,
             );
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        {
+            let mut dirty = self.dirty.lock().unwrap();
+
+            if !dirty.is_empty() {
+                let img = self.render_progress.image().lock().unwrap();
+
+                for tile in dirty.drain(..) {
+                    let tile_img = img.view(tile.min.x, tile.min.y, tile.width(), tile.height());
+                    let color_image = create_image(tile_img.deref());
+
+                    self.texture.set_partial(
+                        [tile.min.x as usize, tile.min.y as usize],
+                        color_image,
+                        TextureOptions::LINEAR,
+                    );
+                }
+            }
+        }
+
+        CentralPanel::default().show(ctx, |ui| {
             ui.centered_and_justified(|ui| {
-                ui.add(egui::Image::from_texture(&self.texture).shrink_to_fit())
+                ui.add(Image::from_texture(&self.texture).shrink_to_fit())
             })
         });
     }
@@ -100,9 +136,38 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create_image(img: &RgbaImage) -> ColorImage {
-    ColorImage::from_rgba_unmultiplied(
-        [img.width() as usize, img.height() as usize],
-        img.as_flat_samples().as_slice(),
-    )
+fn create_image(img: &impl GenericImageView<Pixel = Rgba<u8>>) -> ColorImage {
+    let mut pixels = Vec::with_capacity(img.width() as usize * img.height() as usize);
+    pixels.extend(
+        img.pixels().map(|(_x, _y, px)| {
+            Color32::from_rgba_unmultiplied(px.0[0], px.0[1], px.0[2], px.0[3])
+        }),
+    );
+    ColorImage {
+        size: [img.width() as usize, img.height() as usize],
+        pixels,
+    }
+}
+
+fn create_in_progress_tile(width: u32, height: u32) -> ColorImage {
+    let width = width as usize;
+    let height = height as usize;
+    let mut pixels = Vec::with_capacity(width * height);
+
+    for y in 0..width {
+        for x in 0..height {
+            let bw = 3;
+            let border = (x < bw) | (y < bw) | (x >= (width - bw)) | (y > (height - bw));
+            if border {
+                pixels.push(Color32::from_rgba_unmultiplied(200, 100, 100, 255));
+            } else {
+                pixels.push(Color32::from_rgba_unmultiplied(0, 0, 0, 0));
+            }
+        }
+    }
+
+    ColorImage {
+        size: [width, height],
+        pixels,
+    }
 }

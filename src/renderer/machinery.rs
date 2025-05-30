@@ -1,5 +1,5 @@
 use std::{
-    ops::{Deref, DerefMut as _},
+    ops::Deref as _,
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -17,11 +17,15 @@ use crate::{
     screen_block::ScreenBlockExt,
 };
 
-pub fn render<Callback: Fn() + Send + Sync + 'static>(
+pub fn render<
+    F1: Fn(ScreenBlock) + Send + Sync + 'static,
+    F2: Fn(ScreenBlock) + Send + Sync + 'static,
+>(
     scene: Scene,
     camera: Camera,
     settings: RenderSettings,
-    progress_callback: Callback,
+    started_tile_callback: F1,
+    finished_tile_callback: F2,
 ) -> anyhow::Result<RenderProgress> {
     let image = RgbaImage::new(
         camera.get_resolution().width,
@@ -38,7 +42,8 @@ pub fn render<Callback: Fn() + Send + Sync + 'static>(
             .tile_ordering(settings.tile_size),
         next_tile_index: AtomicUsize::new(0),
     });
-    let progress_callback = Arc::new(progress_callback);
+    let started_tile_callback = Arc::new(started_tile_callback);
+    let finished_tile_callback = Arc::new(finished_tile_callback);
 
     let cores = core_affinity::get_core_ids()
         .expect("We need a CPU list!")
@@ -48,7 +53,8 @@ pub fn render<Callback: Fn() + Send + Sync + 'static>(
     let threads = cores
         .map(|(worker_id, core)| {
             let state = Arc::clone(&state);
-            let progress_callback = Arc::clone(&progress_callback);
+            let started_tile_callback = Arc::clone(&started_tile_callback);
+            let finished_tile_callback = Arc::clone(&finished_tile_callback);
 
             thread::Builder::new()
                 .name(format!("worker{worker_id}"))
@@ -60,6 +66,8 @@ pub fn render<Callback: Fn() + Send + Sync + 'static>(
                         RgbaImage::new(settings.tile_size.into(), settings.tile_size.into());
 
                     while let Some(tile) = state.get_next_tile() {
+                        (started_tile_callback)(tile.clone());
+
                         worker.render_tile(
                             &state.scene,
                             &state.camera,
@@ -71,7 +79,6 @@ pub fn render<Callback: Fn() + Send + Sync + 'static>(
                             .image
                             .lock()
                             .expect("Poisoned lock!")
-                            .deref_mut()
                             .copy_from(
                                 buffer.view(0, 0, tile.width(), tile.height()).deref(),
                                 tile.min.x,
@@ -80,7 +87,8 @@ pub fn render<Callback: Fn() + Send + Sync + 'static>(
                             .unwrap_or_else(|_| {
                                 unreachable!("The buffer should always fit into the output")
                             });
-                        (progress_callback)();
+
+                        (finished_tile_callback)(tile.clone());
                     }
                 })
         })
