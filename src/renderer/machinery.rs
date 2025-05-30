@@ -137,8 +137,8 @@ impl RenderProgress {
     /// Wait for the workers to finish.
     /// Does not block
     pub fn wait(&mut self) {
-        std::mem::take(&mut self.threads)
-            .into_iter()
+        self.threads
+            .drain(..)
             .for_each(|handle| handle.join().unwrap());
     }
 
