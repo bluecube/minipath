@@ -8,7 +8,7 @@ use egui::{CentralPanel, Color32, ColorImage, Image, TextureOptions};
 use image::{GenericImageView, Rgba};
 use minipath::{
     Camera, RenderProgress, RenderSettings, Scene,
-    geometry::{ScreenBlock, ScreenSize, WorldDistance, WorldPoint, WorldVector},
+    geometry::{ScreenBlock, ScreenPoint, ScreenSize, WorldDistance, WorldPoint, WorldVector},
     render,
 };
 
@@ -44,6 +44,7 @@ impl MinipathGui {
                 ctx.request_repaint();
             }
         };
+        let screen_block = ScreenBlock::from_size(camera.get_resolution());
         let render_progress = render(
             scene,
             camera,
@@ -53,7 +54,10 @@ impl MinipathGui {
         )?;
         let texture = cc.egui_ctx.load_texture(
             "rendered",
-            create_image(render_progress.image().lock().unwrap().deref()),
+            egui_image(
+                screen_block,
+                render_progress.image().lock().unwrap().deref(),
+            ),
             TextureOptions::LINEAR,
         );
 
@@ -71,7 +75,7 @@ impl App for MinipathGui {
         for tile in self.started.lock().unwrap().drain(..) {
             self.texture.set_partial(
                 [tile.min.x as usize, tile.min.y as usize],
-                create_in_progress_tile(tile.width(), tile.height()),
+                egui_in_progress_tile(tile),
                 TextureOptions::LINEAR,
             );
         }
@@ -84,7 +88,7 @@ impl App for MinipathGui {
 
                 for tile in dirty.drain(..) {
                     let tile_img = img.view(tile.min.x, tile.min.y, tile.width(), tile.height());
-                    let color_image = create_image(tile_img.deref());
+                    let color_image = egui_image(tile, tile_img.deref());
 
                     self.texture.set_partial(
                         [tile.min.x as usize, tile.min.y as usize],
@@ -136,32 +140,36 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn create_image(img: &impl GenericImageView<Pixel = Rgba<u8>>) -> ColorImage {
-    let mut pixels = Vec::with_capacity(img.width() as usize * img.height() as usize);
-    pixels.extend(
-        img.pixels().map(|(_x, _y, px)| {
-            Color32::from_rgba_unmultiplied(px.0[0], px.0[1], px.0[2], px.0[3])
-        }),
-    );
+fn egui_image(tile: ScreenBlock, img: &impl GenericImageView<Pixel = Rgba<u8>>) -> ColorImage {
+    let width = img.width() as usize;
+    let height = img.height() as usize;
+    let mut pixels = Vec::with_capacity(width * height);
+    pixels.extend(img.pixels().map(|(x, y, px)| {
+        let p = tile.min + euclid::Vector2D::new(x as u32, y as u32);
+        let grid_color = background_grid(p);
+        let image_color = Color32::from_rgba_unmultiplied(px.0[0], px.0[1], px.0[2], px.0[3]);
+        grid_color.blend(image_color)
+    }));
     ColorImage {
-        size: [img.width() as usize, img.height() as usize],
+        size: [width, height],
         pixels,
     }
 }
 
-fn create_in_progress_tile(width: u32, height: u32) -> ColorImage {
-    let width = width as usize;
-    let height = height as usize;
+fn egui_in_progress_tile(tile: ScreenBlock) -> ColorImage {
+    let width = tile.width() as usize;
+    let height = tile.height() as usize;
     let mut pixels = Vec::with_capacity(width * height);
 
     for y in 0..width {
         for x in 0..height {
-            let bw = 3;
+            let bw = 4;
             let border = (x < bw) | (y < bw) | (x >= (width - bw)) | (y > (height - bw));
             if border {
                 pixels.push(Color32::from_rgba_unmultiplied(200, 100, 100, 255));
             } else {
-                pixels.push(Color32::from_rgba_unmultiplied(0, 0, 0, 0));
+                let p = tile.min + euclid::Vector2D::new(x as u32, y as u32);
+                pixels.push(background_grid(p));
             }
         }
     }
@@ -169,5 +177,19 @@ fn create_in_progress_tile(width: u32, height: u32) -> ColorImage {
     ColorImage {
         size: [width, height],
         pixels,
+    }
+}
+
+fn background_grid(p: ScreenPoint) -> Color32 {
+    let grid_size = 16;
+    let square_x = p.x / grid_size;
+    let square_y = p.y / grid_size;
+
+    let dark = (square_x + square_y) & 1 == 0;
+
+    if dark {
+        Color32::from_rgb(50, 50, 50)
+    } else {
+        Color32::from_rgb(70, 90, 120)
     }
 }
