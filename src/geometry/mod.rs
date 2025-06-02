@@ -20,7 +20,29 @@ pub type WorldBox8 = euclid::Box3D<f32x8, WorldSpace>;
 #[derive(Copy, Clone, Debug)]
 pub struct Ray {
     pub origin: WorldPoint,
+    /// Normalized direction of the ray
     pub direction: WorldVector,
+
+    /// Componentwise inverse of the ray direction
+    /// Zeros in direction get turned into positive infinity regardless of the sign of the zero
+    pub inv_direction: WorldVector,
+}
+
+impl Ray {
+    pub fn new(origin: WorldPoint, direction: WorldVector) -> Ray {
+        let direction = direction.normalize();
+        let inv_direction = direction.map(|x| if x == 0.0 { f32::INFINITY } else { 1.0 / x });
+
+        Ray {
+            origin,
+            direction,
+            inv_direction,
+        }
+    }
+
+    pub fn point_at(&self, distance: f32) -> WorldPoint {
+        self.origin + self.direction * distance
+    }
 }
 
 #[cfg(test)]
