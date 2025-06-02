@@ -1,3 +1,7 @@
+mod ray_box_intersection;
+
+use wide::f32x8;
+
 pub struct ScreenSpace;
 pub type ScreenPoint = euclid::Point2D<u32, ScreenSpace>;
 pub type ScreenSize = euclid::Size2D<u32, ScreenSpace>;
@@ -8,6 +12,10 @@ pub type WorldPoint = euclid::Point3D<f32, WorldSpace>;
 pub type WorldVector = euclid::Vector3D<f32, WorldSpace>;
 pub type WorldDistance = euclid::Length<f32, WorldSpace>;
 pub type WorldBox = euclid::Box3D<f32, WorldSpace>;
+pub type WorldPoint8 = euclid::Point3D<f32x8, WorldSpace>;
+pub type WorldVector8 = euclid::Vector3D<f32x8, WorldSpace>;
+pub type WorldDistance8 = euclid::Length<f32x8, WorldSpace>;
+pub type WorldBox8 = euclid::Box3D<f32x8, WorldSpace>;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Ray {
