@@ -17,6 +17,7 @@ pub type WorldVector8 = euclid::Vector3D<f32x8, WorldSpace>;
 pub type WorldDistance8 = euclid::Length<f32x8, WorldSpace>;
 pub type WorldBox8 = euclid::Box3D<f32x8, WorldSpace>;
 
+/// Ray going through the world. Only positive direction is considered to be on the ray.
 #[derive(Copy, Clone, Debug)]
 pub struct Ray {
     pub origin: WorldPoint,
@@ -43,6 +44,15 @@ impl Ray {
     pub fn point_at(&self, distance: f32) -> WorldPoint {
         self.origin + self.direction * distance
     }
+
+    pub fn advance_by(&self, distance: f32) -> Ray {
+        Ray {
+            origin: self.point_at(distance),
+            direction: self.direction,
+            inv_direction: self.inv_direction,
+        }
+    }
+}
 }
 
 #[cfg(test)]
