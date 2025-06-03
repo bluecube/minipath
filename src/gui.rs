@@ -9,19 +9,20 @@ use image::{GenericImageView, Rgba};
 use minipath::{
     Camera, RenderProgress, RenderSettings, Scene,
     geometry::{ScreenBlock, ScreenPoint, ScreenSize, WorldDistance, WorldPoint, WorldVector},
-    render,
+    primitives, render,
+    scene::Object,
 };
 
-pub struct MinipathGui {
-    render_progress: RenderProgress,
+pub struct MinipathGui<O: Object> {
+    render_progress: RenderProgress<O>,
     texture: egui::TextureHandle,
     started: Arc<Mutex<Vec<ScreenBlock>>>,
     dirty: Arc<Mutex<Vec<ScreenBlock>>>,
 }
 
-impl MinipathGui {
+impl<O: Object + Send + Sync + 'static> MinipathGui<O> {
     pub fn new(
-        scene: Scene,
+        scene: Scene<O>,
         camera: Camera,
         render_settings: RenderSettings,
         cc: &CreationContext<'_>,
@@ -70,7 +71,7 @@ impl MinipathGui {
     }
 }
 
-impl App for MinipathGui {
+impl<O: Object> App for MinipathGui<O> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         for tile in self.started.lock().unwrap().drain(..) {
             self.texture.set_partial(
@@ -124,15 +125,16 @@ fn main() -> anyhow::Result<()> {
             );
             let settings = RenderSettings {
                 tile_size: 64.try_into().unwrap(),
-                sample_count: 100.try_into().unwrap(),
+                sample_count: 10000.try_into().unwrap(),
+            };
+            let scene = Scene {
+                object: primitives::Sphere {
+                    center: [1.0, 5.0, 1.5].into(),
+                    radius: WorldDistance::new(1.0),
+                },
             };
 
-            Ok(Box::new(MinipathGui::new(
-                Scene::default(),
-                camera,
-                settings,
-                cc,
-            )?))
+            Ok(Box::new(MinipathGui::new(scene, camera, settings, cc)?))
         }),
     )
     .unwrap();

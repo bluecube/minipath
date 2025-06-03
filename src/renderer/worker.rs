@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use image::RgbaImage;
 use rand::{SeedableRng, rngs::SmallRng};
 
@@ -5,25 +7,27 @@ use crate::{
     camera::Camera,
     geometry::{ScreenBlock, ScreenPoint},
     renderer::RenderSettings,
-    scene::Scene,
+    scene::{Object, Scene},
     screen_block::ScreenBlockExt as _,
     util::Rgba,
 };
 
-pub struct Worker {
+pub struct Worker<O: Object> {
     rng: SmallRng,
+    _phantom: PhantomData<O>,
 }
 
-impl Worker {
+impl<O: Object + Sync> Worker<O> {
     pub fn new(_worker_id: usize) -> Self {
         Self {
             rng: SmallRng::from_os_rng(),
+            _phantom: Default::default(),
         }
     }
 
     pub fn render_tile(
         &mut self,
-        scene: &Scene,
+        scene: &Scene<O>,
         camera: &Camera,
         settings: &RenderSettings,
         tile: &ScreenBlock,
@@ -43,27 +47,18 @@ impl Worker {
 
     fn render_sample(
         &mut self,
-        scene: &Scene,
+        scene: &Scene<O>,
         camera: &Camera,
         settings: &RenderSettings,
         point: &ScreenPoint,
     ) -> Rgba {
         let ray = camera.sample_ray(&point, &mut self.rng);
 
-        let floor_hit_distance = -ray.origin.z / ray.direction.z;
-        if floor_hit_distance < 0.0 {
-            Rgba::new(0.0, 0.0, 0.0, 0.0)
+        if let Some(intersection) = scene.object.intersect(&ray) {
+            let dot = ray.direction.dot(intersection.normal).abs();
+            Rgba::new(dot, dot, dot, 1.0)
         } else {
-            const TILE_SIZE: f32 = 1.0;
-            const LINE_WIDTH: f32 = 1e-2;
-            let floor_hit_point = ray.origin + ray.direction * floor_hit_distance;
-            if floor_hit_point.x.abs() % TILE_SIZE < LINE_WIDTH
-                || floor_hit_point.y.abs() % TILE_SIZE < LINE_WIDTH
-            {
-                Rgba::new(0.0, 0.0, 0.0, 1.0)
-            } else {
-                Rgba::new(0.7, 0.8, 1.0, 1.0)
-            }
+            Rgba::new(0.0, 0.0, 0.0, 0.0)
         }
     }
 }

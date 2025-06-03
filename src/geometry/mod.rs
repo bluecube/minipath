@@ -1,5 +1,3 @@
-mod ray_box_intersection;
-
 use wide::f32x8;
 
 pub struct ScreenSpace;
@@ -16,6 +14,9 @@ pub type WorldPoint8 = euclid::Point3D<f32x8, WorldSpace>;
 pub type WorldVector8 = euclid::Vector3D<f32x8, WorldSpace>;
 pub type WorldDistance8 = euclid::Length<f32x8, WorldSpace>;
 pub type WorldBox8 = euclid::Box3D<f32x8, WorldSpace>;
+
+pub struct TextureSpace;
+pub type TexturePoint = euclid::Point2D<f32, TextureSpace>;
 
 /// Ray going through the world. Only positive direction is considered to be on the ray.
 #[derive(Copy, Clone, Debug)]
@@ -53,6 +54,18 @@ impl Ray {
         }
     }
 }
+
+/// Intersection of ray and scene
+#[derive(Copy, Clone, Debug)]
+pub struct Intersection {
+    /// Position along the ray
+    pub t: f32,
+    /// Point where the ray hit the geometry
+    pub point: WorldPoint,
+    /// Normalized normal vector
+    pub normal: WorldVector,
+    pub material: u32,
+    pub texture_coordinates: TexturePoint,
 }
 
 #[cfg(test)]

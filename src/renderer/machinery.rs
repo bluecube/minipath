@@ -13,20 +13,21 @@ use crate::{
     camera::Camera,
     geometry::ScreenBlock,
     renderer::{RenderSettings, worker::Worker},
-    scene::Scene,
+    scene::{Object, Scene},
     screen_block::ScreenBlockExt,
 };
 
 pub fn render<
+    O: Object + Send + Sync + 'static,
     F1: Fn(ScreenBlock) + Send + Sync + 'static,
     F2: Fn(ScreenBlock) + Send + Sync + 'static,
 >(
-    scene: Scene,
+    scene: Scene<O>,
     camera: Camera,
     settings: RenderSettings,
     started_tile_callback: F1,
     finished_tile_callback: F2,
-) -> anyhow::Result<RenderProgress> {
+) -> anyhow::Result<RenderProgress<O>> {
     let image = RgbaImage::new(
         camera.get_resolution().width,
         camera.get_resolution().height,
@@ -61,7 +62,7 @@ pub fn render<
                 .spawn(move || {
                     core_affinity::set_for_current(core);
 
-                    let mut worker = Worker::new(worker_id);
+                    let mut worker = Worker::<O>::new(worker_id);
                     let mut buffer =
                         RgbaImage::new(settings.tile_size.into(), settings.tile_size.into());
 
@@ -100,12 +101,12 @@ pub fn render<
     })
 }
 
-pub struct RenderProgress {
-    render_state: Arc<RenderState>,
+pub struct RenderProgress<O: Object> {
+    render_state: Arc<RenderState<O>>,
     threads: Vec<JoinHandle<()>>,
 }
 
-impl RenderProgress {
+impl<O: Object> RenderProgress<O> {
     /// Return number of processed and total tiles.
     pub fn progress(&self) -> (usize, usize) {
         let total = self.render_state.tile_ordering.len();
@@ -147,8 +148,8 @@ impl RenderProgress {
     }
 }
 
-struct RenderState {
-    scene: Scene,
+struct RenderState<O: Object> {
+    scene: Scene<O>,
     camera: Camera,
     settings: RenderSettings,
 
@@ -158,7 +159,7 @@ struct RenderState {
     next_tile_index: AtomicUsize,
 }
 
-impl RenderState {
+impl<O: Object> RenderState<O> {
     fn get_next_tile(&self) -> Option<&ScreenBlock> {
         let id = self.next_tile_index.fetch_add(1, Ordering::AcqRel);
         self.tile_ordering.get(id)
