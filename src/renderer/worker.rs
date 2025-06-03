@@ -29,7 +29,6 @@ impl Worker {
         tile: &ScreenBlock,
         buffer: &mut RgbaImage,
     ) {
-        std::thread::sleep(std::time::Duration::from_millis(1000));
         for point in tile.internal_points() {
             let mut pixel_sum = Rgba::new(0.0, 0.0, 0.0, 0.0);
             for _i in 0..settings.sample_count.get() {
