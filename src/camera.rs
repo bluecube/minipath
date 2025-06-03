@@ -92,10 +92,7 @@ impl Camera {
 
         let direction = lens_vector * self.lens_weight - film_point_offset;
 
-        let ray = Ray {
-            origin: self.center + lens_vector,
-            direction: direction.normalize(),
-        };
+        let ray = Ray::new(self.center + lens_vector, direction);
         ray
     }
 }
