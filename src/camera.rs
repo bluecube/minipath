@@ -100,7 +100,6 @@ mod test {
     use super::*;
     use assert2::assert;
     use proptest::prelude::*;
-    use test_strategy::proptest;
 
     use crate::geometry::test::*;
 
