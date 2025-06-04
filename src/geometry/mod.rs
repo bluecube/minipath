@@ -68,6 +68,58 @@ pub struct Intersection {
     pub texture_coordinates: TexturePoint,
 }
 
+pub trait SimdSplat {
+    type VectorType;
+
+    fn simd_splat(&self) -> Self::VectorType;
+}
+
+impl SimdSplat for WorldPoint {
+    type VectorType = WorldPoint8;
+
+    fn simd_splat(&self) -> WorldPoint8 {
+        self.map(f32x8::splat)
+    }
+}
+
+impl SimdSplat for WorldVector {
+    type VectorType = WorldVector8;
+
+    fn simd_splat(&self) -> WorldVector8 {
+        self.map(f32x8::splat)
+    }
+}
+
+impl SimdSplat for WorldBox {
+    type VectorType = WorldBox8;
+
+    fn simd_splat(&self) -> WorldBox8 {
+        WorldBox8::new(self.min.simd_splat(), self.max.simd_splat())
+    }
+}
+
+pub trait SimdLaneAccess {
+    type ScalarType;
+
+    fn get_lane(&self, i: usize) -> Self::ScalarType;
+}
+
+impl SimdLaneAccess for WorldBox8 {
+    type ScalarType = WorldBox;
+
+    fn get_lane(&self, i: usize) -> WorldBox {
+        WorldBox::new(self.min.get_lane(i), self.max.get_lane(i))
+    }
+}
+
+impl SimdLaneAccess for WorldPoint8 {
+    type ScalarType = WorldPoint;
+
+    fn get_lane(&self, i: usize) -> WorldPoint {
+        self.map(|x| x.as_array_ref()[i])
+    }
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
