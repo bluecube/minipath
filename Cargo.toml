@@ -31,3 +31,9 @@ wide = "0.7.32"
 proptest = "1.6.0"
 assert2 = "0.3.15"
 test-strategy = "0.4.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = "line-tables-only"
