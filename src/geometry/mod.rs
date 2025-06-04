@@ -1,3 +1,5 @@
+mod ray_box_intersection;
+
 use wide::f32x8;
 
 pub struct ScreenSpace;
@@ -17,6 +19,8 @@ pub type WorldBox8 = euclid::Box3D<f32x8, WorldSpace>;
 
 pub struct TextureSpace;
 pub type TexturePoint = euclid::Point2D<f32, TextureSpace>;
+
+pub use ray_box_intersection::RayIntersectionExt;
 
 /// Ray going through the world. Only positive direction is considered to be on the ray.
 #[derive(Copy, Clone, Debug)]
