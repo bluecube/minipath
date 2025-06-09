@@ -67,18 +67,17 @@ impl ScreenBlock {
                     ScreenPoint::new(tile_min_x, tile_min_y),
                     ScreenPoint::new(tile_max_x, tile_max_y),
                 );
-
-                let to_center = center - tile.center().cast::<f32>();
-
-                tiles.push((
-                    tile,
-                    OrderedFloat(to_center.norm() + distribution.sample(&mut rand::rng())),
-                ));
+                tiles.push(tile);
             }
         }
 
-        tiles.sort_unstable_by_key(|(_tile, key)| key.clone());
-        tiles.into_iter().map(|(tile, _key)| tile).collect()
+        tiles.sort_by_cached_key(|tile| {
+            let to_center = center - tile.center().cast::<f32>();
+
+            OrderedFloat(to_center.norm() + distribution.sample(&mut rand::rng()))
+        });
+
+        tiles
     }
 }
 
