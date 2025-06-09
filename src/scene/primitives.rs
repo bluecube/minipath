@@ -1,19 +1,19 @@
 use crate::geometry::{
-    Intersection, Ray, TexturePoint, WorldBox, WorldDistance, WorldPoint, WorldVector,
+    FloatType, Intersection, Ray, TexturePoint, WorldBox, WorldPoint, WorldVector,
 };
 
 use super::Object;
 
 pub struct Sphere {
     pub center: WorldPoint,
-    pub radius: WorldDistance,
+    pub radius: FloatType,
 }
 
 impl Object for Sphere {
     fn intersect(&self, ray: &Ray) -> Option<crate::geometry::Intersection> {
         let oc = ray.origin - self.center;
-        let b = oc.dot(ray.direction);
-        let c = oc.dot(oc) - self.radius.get() * self.radius.get();
+        let b = oc.dot(&ray.direction);
+        let c = oc.dot(&oc) - self.radius * self.radius;
         let discriminant = b * b - c;
 
         if discriminant < 0.0 {
@@ -31,7 +31,7 @@ impl Object for Sphere {
             return None;
         };
 
-        let point = ray.origin + ray.direction * t;
+        let point = ray.origin + ray.direction.as_ref() * t;
         let normal = (point - self.center).normalize();
 
         Some(Intersection {
@@ -39,12 +39,12 @@ impl Object for Sphere {
             point,
             normal,
             material: 0,
-            texture_coordinates: TexturePoint::zero(), // TODO?
+            texture_coordinates: TexturePoint::origin(), // TODO?
         })
     }
 
     fn get_bounding_box(&self) -> crate::geometry::WorldBox {
-        let r_vec = WorldVector::splat(self.radius.get());
+        let r_vec = WorldVector::repeat(self.radius);
         WorldBox {
             min: self.center - r_vec,
             max: self.center + r_vec,
@@ -60,7 +60,7 @@ mod tests {
     fn test_direct_hit_through_center() {
         let sphere = Sphere {
             center: [1.0, 2.0, 3.0].into(),
-            radius: WorldDistance::new(1.0),
+            radius: 1.0,
         };
         let ray = Ray::new([1.0, 2.0, 0.0].into(), [0.0, 0.0, 1.0].into());
         let hit = sphere.intersect(&ray);
@@ -73,7 +73,7 @@ mod tests {
     fn test_grazing_hit() {
         let sphere = Sphere {
             center: [1.0, 2.0, 3.0].into(),
-            radius: WorldDistance::new(1.0),
+            radius: 1.0,
         };
         let ray = Ray::new([2.0, 2.0, 0.0].into(), [0.0, 0.0, 1.0].into());
         let hit = sphere.intersect(&ray);
@@ -86,7 +86,7 @@ mod tests {
     fn test_narrow_miss() {
         let sphere = Sphere {
             center: [1.0, 2.0, 3.0].into(),
-            radius: WorldDistance::new(1.0),
+            radius: 1.0,
         };
         let ray = Ray::new([2.0, 2.01, 0.0].into(), [0.0, 0.0, 1.0].into());
         let hit = sphere.intersect(&ray);

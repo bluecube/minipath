@@ -1,10 +1,14 @@
-pub fn bit_iter(bits: i32) -> BitIter {
+pub mod simba;
+
+use std::array;
+
+pub fn bit_iter(bits: u64) -> BitIter {
     BitIter { bits }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct BitIter {
-    bits: i32,
+    bits: u64,
 }
 
 impl Iterator for BitIter {
@@ -27,20 +31,24 @@ impl Iterator for BitIter {
 
 pub type Rgba = rgb::RGBA<f32>;
 
+pub fn map_array<T, U, F: Fn(&T) -> U, const N: usize>(a: &[T; N], fun: F) -> [U; N] {
+    array::from_fn(|i| fun(&a[i]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn bit_iter_basic() {
-        let result: Vec<usize> = bit_iter(0b10101000i32).collect();
+        let result: Vec<usize> = bit_iter(0b10101000u64).collect();
         assert_eq!(result, vec![3, 5, 7]);
     }
 
     #[test]
     fn bit_iter_all_bits() {
-        let result: Vec<usize> = bit_iter(i32::MAX).collect();
-        assert_eq!(result, (0..(i32::BITS as usize - 1)).collect::<Vec<_>>());
+        let result: Vec<usize> = bit_iter(u64::MAX).collect();
+        assert_eq!(result, (0..(u64::BITS as usize)).collect::<Vec<_>>());
     }
 
     #[test]

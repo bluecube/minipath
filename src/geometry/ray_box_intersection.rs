@@ -1,6 +1,11 @@
-use wide::f32x8;
+use simba::simd::{SimdPartialOrd as _, SimdValue};
 
-use crate::geometry::{Ray, WorldBox8};
+use crate::{
+    geometry::{Ray, WorldBox8},
+    util::simba::SimbaWorkarounds as _,
+};
+
+use super::SimdFloatType;
 
 pub trait RayIntersectionExt {
     type DistanceType;
@@ -9,37 +14,40 @@ pub trait RayIntersectionExt {
 }
 
 impl RayIntersectionExt for WorldBox8 {
-    type DistanceType = f32x8;
+    type DistanceType = SimdFloatType;
 
     /// Calculates ray intersection with the box pack.
     /// Returns minimum and maximum distance along the ray, ray intersects is min <= max.
-    fn intersect(&self, ray: &Ray) -> (f32x8, f32x8) {
-        let ray_origin = ray.origin.map(|x| f32x8::splat(x));
-        let ray_inv_direction = ray.inv_direction.map(|x| f32x8::splat(x));
+    fn intersect(&self, ray: &Ray) -> (SimdFloatType, SimdFloatType) {
+        let ray_origin = ray.origin.map(|x| SimdFloatType::splat(x));
+        let ray_inv_direction = ray.inv_direction.map(|x| SimdFloatType::splat(x));
 
         // Componentwise distances along the ray to the box's min and max corners
         // TODO: Perf: Try storing pre-multiplied ray origin in the ray, use FMA (mul_add)
         // The multiplication is NAN if the ray is starting inside the slab bounding plane
         // and is parallel to it. In this case we blend to +-infinity, so that the range becomes infinite
         let to_box_min = (self.min - ray_origin)
-            .component_mul(ray_inv_direction)
-            .map(|x| x.is_nan().blend(f32x8::splat(-f32::INFINITY), x));
+            .component_mul(&ray_inv_direction)
+            .map(|x| SimdFloatType::neg_infinity().select(x.is_nan(), x));
         let to_box_max = (self.max - ray_origin)
-            .component_mul(ray_inv_direction)
-            .map(|x| x.is_nan().blend(f32x8::splat(f32::INFINITY), x));
+            .component_mul(&ray_inv_direction)
+            .map(|x| SimdFloatType::infinity().select(x.is_nan(), x));
 
         // Correctly ordered (min_t <= max_t)
-        let componentwise_min_t = to_box_min.zip(to_box_max, |a, b| a.fast_min(b));
-        let componentwise_max_t = to_box_min.zip(to_box_max, |a, b| a.fast_max(b));
+        // TODO: Perf: wide types support fast_min and fast_max which disregard NaNs.
+        // Since we know that there will not be any, we could use that -- verify if it is worth it
+        // (also few lines below)
+        let componentwise_min_t = to_box_min.zip_map(&to_box_max, |a, b| a.simd_min(b));
+        let componentwise_max_t = to_box_min.zip_map(&to_box_max, |a, b| a.simd_max(b));
 
         let min_t = componentwise_min_t
             .x
-            .fast_max(componentwise_min_t.y)
-            .fast_max(componentwise_min_t.z);
+            .simd_max(componentwise_min_t.y)
+            .simd_max(componentwise_min_t.z);
         let max_t = componentwise_max_t
             .x
-            .fast_min(componentwise_max_t.y)
-            .fast_min(componentwise_max_t.z);
+            .simd_min(componentwise_max_t.y)
+            .simd_min(componentwise_max_t.z);
 
         (min_t, max_t)
     }
@@ -48,8 +56,9 @@ impl RayIntersectionExt for WorldBox8 {
 #[cfg(test)]
 pub mod test {
     use assert2::assert;
+    use nalgebra::SimdBool as _;
+    use simba::simd::SimdBool as _;
     use test_case::{test_case, test_matrix};
-    use wide::f32x8;
 
     use super::*;
 
@@ -70,8 +79,8 @@ pub mod test {
             return;
         }
 
-        let b = WorldBox::new(WorldPoint::splat(5.), WorldPoint::splat(10.));
-        let b_simd = WorldBox8::new(b.min.map(f32x8::splat), b.max.map(f32x8::splat));
+        let b = WorldBox::new([5.0, 5.0, 5.0].into(), [10.0, 10.0, 10.0].into());
+        let b_simd = WorldBox8::splat(b);
 
         let p = WorldPoint::new(px, py, pz);
         let d = WorldVector::new(dx, dy, dz);
@@ -92,13 +101,13 @@ pub mod test {
     }
 
     /// Asserts that all lanes have identical data and returns the intersection if one was found
-    fn simd_result_to_scalar(result_simd: (f32x8, f32x8)) -> Option<(f32, f32)> {
+    fn simd_result_to_scalar(result_simd: (SimdFloatType, SimdFloatType)) -> Option<(f32, f32)> {
         const TOLERANCE: f32 = 1e-3;
 
-        let t1 = result_simd.0.as_array_ref()[0];
-        let t2 = result_simd.1.as_array_ref()[1];
-        assert!(result_simd.0.as_array_ref().iter().all(|x| *x == t1));
-        assert!(result_simd.1.as_array_ref().iter().all(|x| *x == t2));
+        let t1 = result_simd.0.extract(0);
+        let t2 = result_simd.1.extract(0);
+        assert!(result_simd.0.simd_eq(SimdFloatType::splat(t1)).all());
+        assert!(result_simd.1.simd_eq(SimdFloatType::splat(t2)).all());
 
         if t1 <= t2 {
             Some((t1, t2))
@@ -113,8 +122,8 @@ pub mod test {
     /// Just a manual example of ray grazing along an edge.
     #[test]
     fn hit_along_edge() {
-        let b = WorldBox::new(WorldPoint::splat(5.), WorldPoint::splat(10.));
-        let b_simd = WorldBox8::new(b.min.map(f32x8::splat), b.max.map(f32x8::splat));
+        let b = WorldBox::new([5.0, 5.0, 5.0].into(), [10.0, 10.0, 10.0].into());
+        let b_simd = WorldBox8::splat(b);
 
         let r = Ray::new(
             WorldPoint::new(5.0, 5.0, 0.0),
@@ -137,8 +146,8 @@ pub mod test {
     #[test_case( 0.0,  5.0,  7.0,   1.0, 0.0, 1.0,   0.0 ; "corner_miss")]
     #[test_case( 0.0,  0.0,  0.0,  -1.0, 1.0, 1.0,   0.0 ; "corner_miss2")]
     fn only_misses(px: f32, py: f32, pz: f32, dx: f32, dy: f32, dz: f32, origin_pos: f32) {
-        let b = WorldBox::new(WorldPoint::splat(5.), WorldPoint::splat(10.));
-        let b_simd = WorldBox8::new(b.min.map(f32x8::splat), b.max.map(f32x8::splat));
+        let b = WorldBox::new([5.0, 5.0, 5.0].into(), [10.0, 10.0, 10.0].into());
+        let b_simd = WorldBox8::splat(b);
 
         let p = WorldPoint::new(px, py, pz);
         let d = WorldVector::new(dx, dy, dz);

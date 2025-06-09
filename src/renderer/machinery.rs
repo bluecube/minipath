@@ -11,10 +11,9 @@ use image::{GenericImage, GenericImageView, RgbaImage};
 
 use crate::{
     camera::Camera,
-    geometry::ScreenBlock,
+    geometry::{ScreenBlock, ScreenPoint},
     renderer::{RenderSettings, worker::Worker},
     scene::{Object, Scene},
-    screen_block::ScreenBlockExt,
 };
 
 pub fn render<
@@ -28,10 +27,7 @@ pub fn render<
     started_tile_callback: F1,
     finished_tile_callback: F2,
 ) -> anyhow::Result<RenderProgress<O>> {
-    let image = RgbaImage::new(
-        camera.get_resolution().width,
-        camera.get_resolution().height,
-    );
+    let image = RgbaImage::new(camera.get_resolution().x, camera.get_resolution().y);
     let state = Arc::new(RenderState {
         scene,
         camera,
@@ -39,7 +35,7 @@ pub fn render<
 
         image: Mutex::new(image),
 
-        tile_ordering: ScreenBlock::from_size(camera.get_resolution())
+        tile_ordering: ScreenBlock::with_size(ScreenPoint::origin(), &camera.get_resolution())
             .tile_ordering(settings.tile_size),
         next_tile_index: AtomicUsize::new(0),
     });

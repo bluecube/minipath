@@ -13,7 +13,6 @@ name = "minipath-gui"
 path = "src/gui.rs"
 
 [dependencies]
-euclid = "0.22.11"
 image = "0.25.6"
 rand = { version = "0.9.1", features = ["small_rng"]}
 rand_distr = "0.5.1"
@@ -26,10 +25,14 @@ ordered-float = "5.0.0"
 egui = "0.31.1"
 eframe = "0.31.1"
 wide = "0.7.32"
+assert2 = "0.3.15"
+nalgebra = "0.33.2"
+num-traits = "0.2.19"
+#simba = { version = "0.9.0", features = ["wide"] }
+simba = { git = "https://github.com/bluecube/simba.git", branch = "widebool_any_all_none", features = ["wide"] }
 
 [dev-dependencies]
 proptest = "1.6.0"
-assert2 = "0.3.15"
 test-strategy = "0.4.1"
 test-case = "3.3.1"
 

@@ -8,7 +8,6 @@ use crate::{
     geometry::{ScreenBlock, ScreenPoint},
     renderer::RenderSettings,
     scene::{Object, Scene},
-    screen_block::ScreenBlockExt as _,
     util::Rgba,
 };
 
@@ -55,7 +54,7 @@ impl<O: Object + Sync> Worker<O> {
         let ray = camera.sample_ray(&point, &mut self.rng);
 
         if let Some(intersection) = scene.object.intersect(&ray) {
-            let dot = ray.direction.dot(intersection.normal).abs();
+            let dot = ray.direction.dot(&intersection.normal).abs();
             Rgba::new(dot, dot, dot, 1.0)
         } else {
             Rgba::new(0.0, 0.0, 0.0, 0.0)

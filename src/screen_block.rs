@@ -1,4 +1,4 @@
-use euclid::*;
+use nalgebra::Point2;
 use ordered_float::OrderedFloat;
 use rand_distr::Distribution as _;
 use std::iter::FusedIterator;
@@ -6,15 +6,26 @@ use std::num::NonZeroU32;
 
 use crate::geometry::*;
 
-pub trait ScreenBlockExt {
-    fn internal_points(&self) -> InternalPoints;
-    fn tile_ordering(&self, tile_size: NonZeroU32) -> Vec<ScreenBlock>;
-}
+impl ScreenBlock {
+    pub fn is_empty(&self) -> bool {
+        !(self.min < self.max)
+    }
 
-impl ScreenBlockExt for ScreenBlock {
+    pub fn area(&self) -> u32 {
+        if self.is_empty() {
+            0
+        } else {
+            self.size().product()
+        }
+    }
+
+    pub fn contains(&self, p: &ScreenPoint) -> bool {
+        (p >= &self.min) && (p < &self.max)
+    }
+
     /// Create an iterator over coordinates (x, y) pairs inside the block,
     /// in C order (x changes first, then y)
-    fn internal_points(&self) -> InternalPoints {
+    pub fn internal_points(&self) -> InternalPoints {
         if self.is_empty() {
             InternalPoints::empty()
         } else {
@@ -32,27 +43,27 @@ impl ScreenBlockExt for ScreenBlock {
     /// block, where they may be clipped if tile size doesn't evenly divide block size.
     /// May panic if tile size is small (1 or 2) and block size is very large.
     /// This could be much simpler, but I like how the pattern looks when rendering :)
-    fn tile_ordering(&self, tile_size: NonZeroU32) -> Vec<ScreenBlock> {
+    pub fn tile_ordering(&self, tile_size: NonZeroU32) -> Vec<ScreenBlock> {
         if self.is_empty() {
             return Vec::new();
         }
 
         let center = self.center().cast::<f32>();
 
-        let (min_x, min_y) = self.min.to_tuple();
-        let (max_x, max_y) = self.max.to_tuple();
+        let [min_x, min_y] = self.min.coords.into();
+        let [max_x, max_y] = self.max.coords.into();
 
         let x_iter = divide_range(min_x, max_x, tile_size); // We construct x_iter only for size_hint...
         let y_iter = divide_range(min_y, max_y, tile_size);
 
         let mut tiles = Vec::with_capacity(x_iter.size_hint().0 * y_iter.size_hint().0);
 
-        let randomness_scale = center.to_vector().length() * 0.1;
+        let randomness_scale = center.coords.norm() * 0.1;
         let distribution = rand_distr::Exp::new(1.0 / randomness_scale).unwrap();
 
         for (tile_min_y, tile_max_y) in y_iter {
             for (tile_min_x, tile_max_x) in divide_range(min_x, max_x, tile_size) {
-                let tile = euclid::Box2D::new(
+                let tile = ScreenBlock::new(
                     ScreenPoint::new(tile_min_x, tile_min_y),
                     ScreenPoint::new(tile_max_x, tile_max_y),
                 );
@@ -61,7 +72,7 @@ impl ScreenBlockExt for ScreenBlock {
 
                 tiles.push((
                     tile,
-                    OrderedFloat(to_center.length() + distribution.sample(&mut rand::rng())),
+                    OrderedFloat(to_center.norm() + distribution.sample(&mut rand::rng())),
                 ));
             }
         }
@@ -73,7 +84,7 @@ impl ScreenBlockExt for ScreenBlock {
 
 #[derive(Copy, Clone, Debug)]
 pub struct InternalPoints {
-    min_x: u32, // Unfortunately this can't easily be Length :-( TODO: Fix this in euclid?
+    min_x: u32,
     max: ScreenPoint,
 
     cursor: ScreenPoint,
@@ -84,9 +95,9 @@ impl InternalPoints {
     fn empty() -> Self {
         InternalPoints {
             min_x: 1,
-            max: Point2D::zero(),
+            max: Point2::origin(),
 
-            cursor: Point2D::zero(),
+            cursor: Point2::origin(),
         }
     }
 }
@@ -122,9 +133,9 @@ impl ExactSizeIterator for InternalPoints {
         if self.cursor.y >= self.max.y {
             0
         } else {
-            let whole_rows = Box2D::new(point2(self.min_x, self.cursor.y + 1), self.max);
-            let current_row = Box2D::new(self.cursor, point2(self.max.x, self.cursor.y + 1));
-            (whole_rows.area() + current_row.area()) as usize
+            let whole_rows = (self.max.y - self.cursor.y - 1) * (self.max.x - self.min_x);
+            let current_row = self.max.x - self.cursor.x;
+            (whole_rows + current_row) as usize
         }
     }
 }
@@ -152,12 +163,13 @@ fn divide_range(start: u32, end: u32, tile_size: NonZeroU32) -> impl Iterator<It
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::geometry::test::*;
     use assert2::assert;
+    use proptest::prelude::Strategy;
     use test_strategy::proptest;
 
-    fn safe_area(block: ScreenBlock) -> u32 {
-        if block.is_empty() { 0 } else { block.area() }
+    fn screen_block_strategy() -> impl proptest::strategy::Strategy<Value = ScreenBlock> {
+        (0u32..1000u32, 0u32..1000u32, 0u32..1000u32, 0u32..1000u32)
+            .prop_map(|(x, y, w, h)| ScreenBlock::new([x, y].into(), [x + w, y + h].into()))
     }
 
     fn check_exact_length_internal<T: Iterator + ExactSizeIterator>(
@@ -190,10 +202,10 @@ mod test {
         mut pixel_iterator: T,
         block: ScreenBlock,
     ) {
-        let area = safe_area(block);
+        let area = block.area();
         let mut vec = vec![false; area as usize];
         while let Some(p) = pixel_iterator.next() {
-            assert!(block.contains(p));
+            assert!(block.contains(&p));
             let index = (p.x - block.min.x) + (p.y - block.min.y) * block.width();
             assert!(!vec[index as usize]);
             vec[index as usize] = true;
@@ -203,25 +215,37 @@ mod test {
 
     /// Tests that pixel iterator covers all pixels in a block
     #[proptest]
-    fn pixel_iterator_covers_all(block: ScreenBlockWrapper) {
-        check_pixel_iterator_covers_block(block.internal_points(), *block);
+    fn pixel_iterator_covers_all(#[strategy(screen_block_strategy())] block: ScreenBlock) {
+        check_pixel_iterator_covers_block(block.internal_points(), block);
     }
 
     /// Tests that pixel iterator is a well behaved exact length iterator
     #[proptest]
-    fn pixel_iterator_exact_length(block: ScreenBlockWrapper) {
-        check_exact_length(block.internal_points(), safe_area(*block) as usize);
+    fn pixel_iterator_exact_length(#[strategy(screen_block_strategy())] block: ScreenBlock) {
+        check_exact_length(block.internal_points(), block.area() as usize);
     }
 
     /// Tests that sub blocks of a tile ordering when iterated over cover all pixels in a block
     #[proptest]
-    fn tile_ordering_covers_all(block: ScreenBlockWrapper, tile_size_minus_one: u8) {
+    fn tile_ordering_covers_all(
+        #[strategy(screen_block_strategy())] block: ScreenBlock,
+        tile_size_minus_one: u8,
+    ) {
         check_pixel_iterator_covers_block(
             block
                 .tile_ordering(NonZeroU32::new(tile_size_minus_one as u32 + 1).unwrap())
                 .iter()
                 .flat_map(|tile| tile.internal_points()),
-            *block,
+            block,
         );
+    }
+
+    #[test]
+    fn screen_block_is_empty() {
+        assert!(!ScreenBlock::new([0, 0].into(), [10, 10].into()).is_empty());
+
+        assert!(ScreenBlock::new([0, 0].into(), [0, 0].into()).is_empty());
+        assert!(ScreenBlock::new([0, 0].into(), [10, 0].into()).is_empty());
+        assert!(ScreenBlock::new([5, 5].into(), [10, 1].into()).is_empty());
     }
 }

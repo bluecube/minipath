@@ -8,10 +8,11 @@ use egui::{CentralPanel, Color32, ColorImage, Image, TextureOptions};
 use image::{GenericImageView, Rgba};
 use minipath::{
     Camera, RenderProgress, RenderSettings, Scene,
-    geometry::{ScreenBlock, ScreenPoint, ScreenSize, WorldDistance, WorldPoint, WorldVector},
+    geometry::{ScreenBlock, ScreenPoint, ScreenSize, WorldPoint, WorldVector},
     primitives, render,
     scene::Object,
 };
+use nalgebra::Vector2;
 
 pub struct MinipathGui<O: Object> {
     render_progress: RenderProgress<O>,
@@ -45,7 +46,7 @@ impl<O: Object + Send + Sync + 'static> MinipathGui<O> {
                 ctx.request_repaint();
             }
         };
-        let screen_block = ScreenBlock::from_size(camera.get_resolution());
+        let screen_block = ScreenBlock::with_size(ScreenPoint::origin(), &camera.get_resolution());
         let render_progress = render(
             scene,
             camera,
@@ -118,19 +119,19 @@ fn main() -> anyhow::Result<()> {
                 WorldVector::new(0.0, 1.0, 0.0),
                 WorldVector::new(0.0, 0.0, 1.0),
                 ScreenSize::new(2048, 1536),
-                WorldDistance::new(36e-3),
-                WorldDistance::new(50e-3),
+                36e-3,
+                50e-3,
                 4.8,
-                WorldDistance::new(5.0),
+                5.0,
             );
             let settings = RenderSettings {
                 tile_size: 64.try_into().unwrap(),
-                sample_count: 10000.try_into().unwrap(),
+                sample_count: 10.try_into().unwrap(),
             };
             let scene = Scene {
                 object: primitives::Sphere {
                     center: [1.0, 5.0, 1.5].into(),
-                    radius: WorldDistance::new(1.0),
+                    radius: 1.0,
                 },
             };
 
@@ -147,7 +148,7 @@ fn egui_image(tile: ScreenBlock, img: &impl GenericImageView<Pixel = Rgba<u8>>) 
     let height = img.height() as usize;
     let mut pixels = Vec::with_capacity(width * height);
     pixels.extend(img.pixels().map(|(x, y, px)| {
-        let p = tile.min + euclid::Vector2D::new(x as u32, y as u32);
+        let p = tile.min + Vector2::new(x, y);
         let grid_color = background_grid(p);
         let image_color = Color32::from_rgba_unmultiplied(px.0[0], px.0[1], px.0[2], px.0[3]);
         grid_color.blend(image_color)
@@ -170,7 +171,7 @@ fn egui_in_progress_tile(tile: ScreenBlock) -> ColorImage {
             if border {
                 pixels.push(Color32::from_rgba_unmultiplied(200, 100, 100, 255));
             } else {
-                let p = tile.min + euclid::Vector2D::new(x as u32, y as u32);
+                let p = tile.min + Vector2::new(x, y).cast::<u32>();
                 pixels.push(background_grid(p));
             }
         }
