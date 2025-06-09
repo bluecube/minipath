@@ -167,7 +167,7 @@ mod test {
     use test_strategy::proptest;
 
     fn screen_block_strategy() -> impl proptest::strategy::Strategy<Value = ScreenBlock> {
-        (0u32..1000u32, 0u32..1000u32, 0u32..1000u32, 0u32..1000u32)
+        (0u32..1000u32, 0u32..1000u32, 0u32..20u32, 0u32..20u32)
             .prop_map(|(x, y, w, h)| ScreenBlock::new([x, y].into(), [x + w, y + h].into()))
     }
 
@@ -228,11 +228,11 @@ mod test {
     #[proptest]
     fn tile_ordering_covers_all(
         #[strategy(screen_block_strategy())] block: ScreenBlock,
-        tile_size_minus_one: u8,
+        #[strategy(1u32..10u32)] tile_size: u32,
     ) {
         check_pixel_iterator_covers_block(
             block
-                .tile_ordering(NonZeroU32::new(tile_size_minus_one as u32 + 1).unwrap())
+                .tile_ordering(NonZeroU32::new(tile_size).unwrap())
                 .iter()
                 .flat_map(|tile| tile.internal_points()),
             block,
@@ -246,5 +246,10 @@ mod test {
         assert!(ScreenBlock::new([0, 0].into(), [0, 0].into()).is_empty());
         assert!(ScreenBlock::new([0, 0].into(), [10, 0].into()).is_empty());
         assert!(ScreenBlock::new([5, 5].into(), [10, 1].into()).is_empty());
+    }
+
+    #[test]
+    fn screen_block_area() {
+        assert!(ScreenBlock::new([0, 0].into(), [1, 1].into()).area() == 1);
     }
 }
