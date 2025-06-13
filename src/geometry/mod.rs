@@ -1,11 +1,17 @@
 mod aabb;
 mod ray_box_intersection;
 mod ray_triangle_intersection;
+mod triangle;
 
-use nalgebra::Unit;
+use std::ops::{Mul, Sub};
+
+use nalgebra::{Point2, Point3, Unit, Vector2, Vector3};
 
 pub use aabb::AABB;
+use num_traits::One;
 pub use ray_box_intersection::RayIntersectionExt;
+use simba::{scalar::ClosedAdd, simd::SimdValue};
+pub use triangle::Triangle;
 
 pub type FloatType = f32;
 pub type SimdFloatType = simba::simd::WideF32x8;
@@ -14,18 +20,18 @@ pub type SimdFloatType = simba::simd::WideF32x8;
 /// This is not the same as machine epsilon (FloatType::EPSILON).
 pub const EPSILON: FloatType = 1e-6;
 
-pub type ScreenPoint = nalgebra::Point2<u32>;
-pub type ScreenSize = nalgebra::Vector2<u32>;
+pub type ScreenPoint = Point2<u32>;
+pub type ScreenSize = Vector2<u32>;
 pub type ScreenBlock = AABB<ScreenPoint>;
 
-pub type WorldPoint = nalgebra::Point3<FloatType>;
-pub type WorldVector = nalgebra::Vector3<FloatType>;
+pub type WorldPoint = Point3<FloatType>;
+pub type WorldVector = Vector3<FloatType>;
 pub type WorldBox = AABB<WorldPoint>;
-pub type WorldPoint8 = nalgebra::Point3<SimdFloatType>;
-pub type WorldVector8 = nalgebra::Vector3<SimdFloatType>;
+pub type WorldPoint8 = Point3<SimdFloatType>;
+pub type WorldVector8 = Vector3<SimdFloatType>;
 pub type WorldBox8 = AABB<WorldPoint8>;
 
-pub type TexturePoint = nalgebra::Point2<f32>;
+pub type TexturePoint = Point3<f32>;
 
 /// Ray going through the world. Only positive direction is considered to be on the ray.
 #[derive(Copy, Clone, Debug)]
@@ -77,16 +83,72 @@ pub struct Intersection {
     pub texture_coordinates: TexturePoint,
 }
 
-pub struct Triangle8 {
-    pub a: WorldPoint8,
-    pub e: [WorldVector8; 2],
+#[derive(Copy, Clone, Debug, Default)]
+pub struct BarycentricCoordinates<T: SimdValue> {
+    pub u: T,
+    pub v: T,
 }
 
-impl Triangle8 {
-    fn new(p: &[WorldPoint8; 3]) -> Triangle8 {
-        Triangle8 {
-            a: p[0],
-            e: [p[1] - p[0], p[2] - p[0]],
+impl<T> BarycentricCoordinates<T>
+where
+    T: SimdValue + One + Copy + Sub<Output = T>,
+{
+    pub fn interpolate<T2>(&self, a: &T2, b: &T2, c: &T2) -> T2
+    where
+        for<'a> &'a T2: Mul<T, Output = T2>,
+        T2: ClosedAdd,
+    {
+        let w = T::one() - self.u - self.v;
+        a * w + b * self.u + c * self.v
+    }
+}
+
+impl<T: SimdValue> SimdValue for BarycentricCoordinates<T> {
+    const LANES: usize = T::LANES;
+
+    type Element = BarycentricCoordinates<T::Element>;
+
+    type SimdBool = T::SimdBool;
+
+    fn splat(val: Self::Element) -> Self {
+        BarycentricCoordinates {
+            u: T::splat(val.u),
+            v: T::splat(val.v),
+        }
+    }
+
+    fn extract(&self, i: usize) -> Self::Element {
+        BarycentricCoordinates {
+            u: self.u.extract(i),
+            v: self.v.extract(i),
+        }
+    }
+
+    unsafe fn extract_unchecked(&self, i: usize) -> Self::Element {
+        unsafe {
+            BarycentricCoordinates {
+                u: self.u.extract_unchecked(i),
+                v: self.v.extract_unchecked(i),
+            }
+        }
+    }
+
+    fn replace(&mut self, i: usize, val: Self::Element) {
+        self.u.replace(i, val.u);
+        self.v.replace(i, val.v);
+    }
+
+    unsafe fn replace_unchecked(&mut self, i: usize, val: Self::Element) {
+        unsafe {
+            self.u.replace_unchecked(i, val.u);
+            self.v.replace_unchecked(i, val.v);
+        }
+    }
+
+    fn select(self, cond: Self::SimdBool, other: Self) -> Self {
+        BarycentricCoordinates {
+            u: self.u.select(cond, other.u),
+            v: self.v.select(cond, other.v),
         }
     }
 }

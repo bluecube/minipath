@@ -56,7 +56,6 @@ impl RayIntersectionExt for WorldBox8 {
 #[cfg(test)]
 pub mod test {
     use assert2::assert;
-    use nalgebra::SimdBool as _;
     use simba::simd::SimdBool as _;
     use test_case::{test_case, test_matrix};
 

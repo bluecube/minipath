@@ -1,4 +1,4 @@
-use simba::simd::{SimdValue, WideBoolF32x8, WideF32x8};
+use simba::simd::{SimdBool, SimdValue, WideBoolF32x8, WideF32x8};
 
 pub trait SimbaWorkarounds: SimdValue {
     fn is_nan(self) -> Self::SimdBool;
@@ -21,5 +21,69 @@ impl SimbaWorkarounds for WideF32x8 {
     #[inline(always)]
     fn neg_infinity() -> Self {
         Self::splat(f32::NEG_INFINITY)
+    }
+}
+
+/// Converts a flat iterator of elements into an iterator of SIMD values and mask.
+/// If input iterator length is not divisible by T::LANES, remainder of the last
+/// vector will be filled with the content of T::default() and mask will be false.
+pub fn simd_windows<T: SimdValue + Default>(
+    value: impl IntoIterator<Item = T::Element>,
+) -> impl Iterator<Item = (T, T::SimdBool)>
+where
+    T::SimdBool: SimdValue,
+    <T::SimdBool as SimdValue>::Element: From<bool>,
+{
+    let mut iter = value.into_iter();
+    std::iter::from_fn(move || {
+        let mut t = T::default();
+        let mut mask = <T::SimdBool as SimdValue>::splat(false.into());
+
+        for (j, v) in (0..T::LANES).zip(&mut iter) {
+            t.replace(j, v);
+            mask.replace(j, true.into());
+        }
+
+        if mask.any() { Some((t, mask)) } else { None }
+    })
+}
+
+pub fn simd_element_iter<T: SimdValue>(value: T) -> impl Iterator<Item = T::Element> {
+    (0..T::LANES).map(move |i| value.extract(i))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert2::assert;
+    use simba::simd::WideF32x8;
+
+    #[test]
+    fn simd_windows_exact_fill() {
+        let input = 0..16;
+        let result: Vec<_> = simd_windows::<WideF32x8>(input.map(|x| x as f32)).collect();
+        assert!(result.len() == 2);
+        assert!(result[0].0.extract(0) == 0.0);
+        assert!(result[0].0.extract(7) == 7.0);
+        assert!(result[1].0.extract(0) == 8.0);
+        assert!(result[1].0.extract(7) == 15.0);
+    }
+
+    #[test]
+    fn simd_windows_partial_fill() {
+        let input = 0..10;
+        let result: Vec<_> = simd_windows::<WideF32x8>(input.map(|x| x as f32)).collect();
+        assert!(result.len() == 2);
+        assert!(result[0].0.extract(0) == 0.0);
+        assert!(result[1].0.extract(1) == 9.0);
+        assert!(!result[1].1.extract(2));
+        assert!(!result[1].1.extract(7));
+    }
+
+    #[test]
+    fn simd_windows_empty() {
+        let input = std::iter::empty::<f32>();
+        let result: Vec<_> = simd_windows::<WideF32x8>(input).collect();
+        assert!(result.is_empty());
     }
 }
