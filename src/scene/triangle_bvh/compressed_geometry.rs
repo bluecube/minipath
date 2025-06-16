@@ -93,8 +93,6 @@ pub type RelativeTriangle8 = Triangle<RelativePoint8>;
 
 impl RelativeTriangle8 {
     pub fn compress(triangle: &Triangle<WorldPoint8>, enclosing_box: &WorldBox8) -> Self {
-        dbg!(triangle);
-        dbg!(enclosing_box);
         triangle.map(|p| RelativePoint8::compress(p, enclosing_box))
     }
 

@@ -132,7 +132,6 @@ fn main() -> anyhow::Result<()> {
             let scene = Scene {
                 object: TriangleBvh::with_obj("data/teapot.obj").unwrap(),
             };
-            scene.object.print_tree();
             scene.object.print_statistics();
 
             Ok(Box::new(MinipathGui::new(scene, camera, settings, cc)?))
