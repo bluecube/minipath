@@ -57,7 +57,7 @@ impl<O: Object + Send + Sync + 'static> MinipathGui<O> {
         let texture = cc.egui_ctx.load_texture(
             "rendered",
             egui_image(
-                screen_block,
+                &screen_block,
                 render_progress.image().lock().unwrap().deref(),
                 true,
             ),
@@ -91,7 +91,7 @@ impl<O: Object> App for MinipathGui<O> {
 
                 for tile in dirty.drain(..) {
                     let tile_img = img.view(tile.min.x, tile.min.y, tile.width(), tile.height());
-                    let color_image = egui_image(tile, tile_img.deref(), false);
+                    let color_image = egui_image(&tile, tile_img.deref(), false);
 
                     self.texture.set_partial(
                         [tile.min.x as usize, tile.min.y as usize],
@@ -145,7 +145,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn egui_image(
-    tile: ScreenBlock,
+    tile: &ScreenBlock,
     img: &impl GenericImageView<Pixel = Rgba<u8>>,
     gray: bool,
 ) -> ColorImage {

@@ -8,7 +8,7 @@ use nalgebra::{
 
 use simba::simd::SimdValue;
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct AABB<Point> {
     pub min: Point,
     pub max: Point,
