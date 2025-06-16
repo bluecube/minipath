@@ -101,6 +101,14 @@ where
         let w = T::one() - self.u - self.v;
         a * w + b * self.u + c * self.v
     }
+
+    pub fn interpolate_triangle<T2>(&self, triangle: &Triangle<T2>) -> T2
+    where
+        for<'a> &'a T2: Mul<T, Output = T2>,
+        T2: ClosedAdd,
+    {
+        self.interpolate(&triangle[0], &triangle[1], &triangle[2])
+    }
 }
 
 impl<T: SimdValue> SimdValue for BarycentricCoordinates<T> {
