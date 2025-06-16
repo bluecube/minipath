@@ -1,10 +1,10 @@
 pub mod primitives;
 
-use crate::geometry::{Intersection, Ray, WorldBox};
+use crate::geometry::{HitRecord, Ray, WorldBox};
 
 /// Renderable object
 pub trait Object {
-    fn intersect(&self, ray: &Ray) -> Option<Intersection>;
+    fn intersect(&self, ray: &Ray) -> Option<HitRecord>;
     fn get_bounding_box(&self) -> WorldBox;
 }
 

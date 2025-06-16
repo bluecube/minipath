@@ -1,6 +1,6 @@
-use crate::geometry::{
-    FloatType, Intersection, Ray, TexturePoint, WorldBox, WorldPoint, WorldVector,
-};
+use nalgebra::Unit;
+
+use crate::geometry::{FloatType, HitRecord, Ray, TexturePoint, WorldBox, WorldPoint, WorldVector};
 
 use super::Object;
 
@@ -10,7 +10,7 @@ pub struct Sphere {
 }
 
 impl Object for Sphere {
-    fn intersect(&self, ray: &Ray) -> Option<crate::geometry::Intersection> {
+    fn intersect(&self, ray: &Ray) -> Option<HitRecord> {
         let oc = ray.origin - self.center;
         let b = oc.dot(&ray.direction);
         let c = oc.dot(&oc) - self.radius * self.radius;
@@ -32,9 +32,9 @@ impl Object for Sphere {
         };
 
         let point = ray.origin + ray.direction.as_ref() * t;
-        let normal = (point - self.center).normalize();
+        let normal = Unit::new_normalize(point - self.center);
 
-        Some(Intersection {
+        Some(HitRecord {
             t,
             point,
             normal,

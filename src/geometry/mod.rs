@@ -72,13 +72,13 @@ impl Ray {
 
 /// Intersection of ray and scene
 #[derive(Copy, Clone, Debug)]
-pub struct Intersection {
+pub struct HitRecord {
     /// Position along the ray
     pub t: f32,
     /// Point where the ray hit the geometry
     pub point: WorldPoint,
     /// Normalized normal vector
-    pub normal: WorldVector,
+    pub normal: Unit<WorldVector>,
     pub material: u32,
     pub texture_coordinates: TexturePoint,
 }
