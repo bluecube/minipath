@@ -1,4 +1,7 @@
 pub mod primitives;
+mod triangle_bvh;
+
+pub use triangle_bvh::TriangleBvh;
 
 use crate::geometry::{HitRecord, Ray, WorldBox};
 

@@ -9,8 +9,8 @@ use image::{GenericImageView, Rgba};
 use minipath::{
     Camera, RenderProgress, RenderSettings, Scene,
     geometry::{ScreenBlock, ScreenPoint, ScreenSize, WorldPoint, WorldVector},
-    primitives, render,
-    scene::Object,
+    render,
+    scene::{Object, TriangleBvh},
 };
 use nalgebra::Vector2;
 
@@ -116,7 +116,7 @@ fn main() -> anyhow::Result<()> {
         Default::default(),
         Box::new(|cc| {
             let camera = Camera::new(
-                WorldPoint::new(0.0, 0.0, 2.0),
+                WorldPoint::new(0.0, -5.0, 1.0),
                 WorldVector::new(0.0, 1.0, 0.0),
                 WorldVector::new(0.0, 0.0, 1.0),
                 ScreenSize::new(2048, 1536),
@@ -130,11 +130,10 @@ fn main() -> anyhow::Result<()> {
                 sample_count: 10.try_into().unwrap(),
             };
             let scene = Scene {
-                object: primitives::Sphere {
-                    center: [1.0, 5.0, 1.5].into(),
-                    radius: 1.0,
-                },
+                object: TriangleBvh::with_obj("data/teapot.obj").unwrap(),
             };
+            scene.object.print_tree();
+            scene.object.print_statistics();
 
             Ok(Box::new(MinipathGui::new(scene, camera, settings, cc)?))
         }),

@@ -1,6 +1,6 @@
 pub mod simba;
 
-use std::array;
+use std::{array, fmt::Display};
 
 pub fn bit_iter(bits: u64) -> BitIter {
     BitIter { bits }
@@ -36,6 +36,69 @@ pub type Rgba = rgb::RGBA<f32>;
 pub fn collect_to_array<T: Default, const N: usize>(values: impl IntoIterator<Item = T>) -> [T; N] {
     let mut iter = values.into_iter();
     array::from_fn(|_| iter.next().unwrap_or_default())
+}
+
+#[derive(Clone, Debug)]
+pub struct Stats {
+    pub count: usize,
+    pub min: usize,
+    pub max: usize,
+    pub avg: f32,
+}
+
+impl Stats {
+    pub fn new_single(v: usize) -> Self {
+        Stats {
+            count: 1,
+            min: v,
+            max: v,
+            avg: v as f32,
+        }
+    }
+
+    pub fn add_sample(&mut self, value: usize) {
+        self.count += 1;
+        self.min = self.min.min(value);
+        self.max = self.max.max(value);
+        self.avg += (value as f32 - self.avg) / (self.count as f32);
+    }
+
+    pub fn add_samples(&mut self, it: impl IntoIterator<Item = usize>) {
+        for v in it {
+            self.add_sample(v);
+        }
+    }
+
+    pub fn merge(&self, other: &Self) -> Self {
+        Stats {
+            count: self.count + other.count,
+            min: self.min.min(other.min),
+            max: self.max.max(other.max),
+            avg: (self.avg * self.count as f32 + other.avg * other.count as f32)
+                / (self.count + other.count) as f32,
+        }
+    }
+}
+
+impl Default for Stats {
+    fn default() -> Self {
+        Stats {
+            count: 0,
+            min: usize::MAX,
+            max: 0,
+            avg: 0.0,
+        }
+    }
+}
+
+impl Display for Stats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} - {}; avg {:.1}; {} samples",
+            self.min, self.max, self.avg, self.count
+        )
+    }
 }
 
 #[cfg(test)]
