@@ -1,6 +1,10 @@
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Sub};
 
-use nalgebra::{DefaultAllocator, DimName, OPoint, Scalar, allocator::Allocator};
+use nalgebra::{
+    ClosedAddAssign, ClosedDivAssign, ClosedMulAssign, ClosedSubAssign, DefaultAllocator, DimName,
+    OPoint, OVector, Scalar, allocator::Allocator,
+};
+use num_traits::Zero;
 use simba::simd::SimdValue;
 
 #[derive(Clone, Debug)]
@@ -92,6 +96,42 @@ where
         mut f: F,
     ) {
         self.zip_apply(rhs, |x, y| x.coords.zip_apply(&y.coords, &mut f))
+    }
+}
+
+impl<T: Scalar, D: DimName> Triangle<OPoint<T, D>>
+where
+    DefaultAllocator: Allocator<D>,
+    T: ClosedAddAssign + ClosedDivAssign + Zero + From<usize>,
+{
+    pub fn centroid(&self) -> OPoint<T, D> {
+        OPoint {
+            coords: self.0.iter().map(|p| &p.coords).sum::<OVector<T, D>>() / T::from(self.0.len()),
+        }
+    }
+}
+
+impl<T: Scalar, D: DimName> Triangle<OPoint<T, D>>
+where
+    DefaultAllocator: Allocator<D>,
+    for<'a> &'a OPoint<T, D>: Sub<Output = OVector<T, D>>,
+{
+    /// Returns edge vectors, coming from self[0]
+    pub fn edges(&self) -> [OVector<T, D>; 2] {
+        [&self.0[1] - &self.0[0], &self.0[2] - &self.0[0]]
+    }
+}
+
+impl<T: Scalar, D: DimName> Triangle<OPoint<T, D>>
+where
+    DefaultAllocator: Allocator<D>,
+    for<'a> &'a OPoint<T, D>: Sub<Output = OVector<T, D>>,
+    T: ClosedAddAssign + ClosedSubAssign + ClosedMulAssign,
+{
+    /// Returns a normal vector of the triangle, not normalized.
+    pub fn normal(&self) -> OVector<T, D> {
+        let [e1, e2] = self.edges();
+        e1.cross(&e2)
     }
 }
 
