@@ -59,6 +59,7 @@ impl<O: Object + Send + Sync + 'static> MinipathGui<O> {
             egui_image(
                 screen_block,
                 render_progress.image().lock().unwrap().deref(),
+                true,
             ),
             TextureOptions::LINEAR,
         );
@@ -90,7 +91,7 @@ impl<O: Object> App for MinipathGui<O> {
 
                 for tile in dirty.drain(..) {
                     let tile_img = img.view(tile.min.x, tile.min.y, tile.width(), tile.height());
-                    let color_image = egui_image(tile, tile_img.deref());
+                    let color_image = egui_image(tile, tile_img.deref(), false);
 
                     self.texture.set_partial(
                         [tile.min.x as usize, tile.min.y as usize],
@@ -143,13 +144,17 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn egui_image(tile: ScreenBlock, img: &impl GenericImageView<Pixel = Rgba<u8>>) -> ColorImage {
+fn egui_image(
+    tile: ScreenBlock,
+    img: &impl GenericImageView<Pixel = Rgba<u8>>,
+    gray: bool,
+) -> ColorImage {
     let width = img.width() as usize;
     let height = img.height() as usize;
     let mut pixels = Vec::with_capacity(width * height);
     pixels.extend(img.pixels().map(|(x, y, px)| {
         let p = tile.min + Vector2::new(x, y);
-        let grid_color = background_grid(p);
+        let grid_color = background_grid(p, gray);
         let image_color = Color32::from_rgba_unmultiplied(px.0[0], px.0[1], px.0[2], px.0[3]);
         grid_color.blend(image_color)
     }));
@@ -172,7 +177,7 @@ fn egui_in_progress_tile(tile: ScreenBlock) -> ColorImage {
                 pixels.push(Color32::from_rgba_unmultiplied(200, 100, 100, 255));
             } else {
                 let p = tile.min + Vector2::new(x, y).cast::<u32>();
-                pixels.push(background_grid(p));
+                pixels.push(background_grid(p, true));
             }
         }
     }
@@ -183,7 +188,7 @@ fn egui_in_progress_tile(tile: ScreenBlock) -> ColorImage {
     }
 }
 
-fn background_grid(p: ScreenPoint) -> Color32 {
+fn background_grid(p: ScreenPoint, gray: bool) -> Color32 {
     let grid_size = 16;
     let square_x = p.x / grid_size;
     let square_y = p.y / grid_size;
@@ -193,6 +198,10 @@ fn background_grid(p: ScreenPoint) -> Color32 {
     if dark {
         Color32::from_rgb(50, 50, 50)
     } else {
-        Color32::from_rgb(70, 90, 120)
+        if gray {
+            Color32::from_rgb(93, 93, 93)
+        } else {
+            Color32::from_rgb(70, 90, 120)
+        }
     }
 }
