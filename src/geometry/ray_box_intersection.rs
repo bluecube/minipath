@@ -79,7 +79,7 @@ pub mod test {
         }
 
         let b = WorldBox::new([5.0, 5.0, 5.0].into(), [10.0, 10.0, 10.0].into());
-        let b_simd = WorldBox8::splat(b);
+        let b_simd = WorldBox8::splat(b.clone());
 
         let p = WorldPoint::new(px, py, pz);
         let d = WorldVector::new(dx, dy, dz);
@@ -95,8 +95,8 @@ pub mod test {
         let p1 = r.point_at(t1);
         let p2 = r.point_at(t2);
 
-        assert!(point_is_on_box_surface(p1, b), "{p1:?} must be in {b:?}");
-        assert!(point_is_on_box_surface(p2, b), "{p2:?} must be in {b:?}");
+        assert!(point_is_on_box_surface(&p1, &b), "{p1:?} must be in {b:?}");
+        assert!(point_is_on_box_surface(&p2, &b), "{p2:?} must be in {b:?}");
     }
 
     /// Asserts that all lanes have identical data and returns the intersection if one was found
@@ -158,7 +158,7 @@ pub mod test {
 
         assert!(result == None);
     }
-    fn point_is_on_box_surface(p: WorldPoint, b: WorldBox) -> bool {
+    fn point_is_on_box_surface(p: &WorldPoint, b: &WorldBox) -> bool {
         const TOLERANCE: f32 = 1e-3;
 
         // Check if point is within the box's bounds (inclusive, with tolerance)
