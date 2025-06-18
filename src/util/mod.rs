@@ -63,19 +63,17 @@ impl Stats {
         self.avg += (value as f32 - self.avg) / (self.count as f32);
     }
 
-    pub fn add_samples(&mut self, it: impl IntoIterator<Item = usize>) {
-        for v in it {
-            self.add_sample(v);
-        }
-    }
-
     pub fn merge(&self, other: &Self) -> Self {
         Stats {
             count: self.count + other.count,
             min: self.min.min(other.min),
             max: self.max.max(other.max),
-            avg: (self.avg * self.count as f32 + other.avg * other.count as f32)
-                / (self.count + other.count) as f32,
+            avg: if self.count > 0 || other.count > 0 {
+                (self.avg * self.count as f32 + other.avg * other.count as f32)
+                    / (self.count + other.count) as f32
+            } else {
+                0.0
+            },
         }
     }
 }
