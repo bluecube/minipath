@@ -1,5 +1,8 @@
 use num_traits::One;
-use std::ops::{Add, Sub};
+use std::{
+    borrow::Borrow,
+    ops::{Add, Sub},
+};
 
 use nalgebra::{
     ClosedAddAssign, ClosedDivAssign, DefaultAllocator, DimName, OPoint, Point, Point2, Scalar,
@@ -7,6 +10,8 @@ use nalgebra::{
 };
 
 use simba::simd::SimdValue;
+
+use super::WorldPoint;
 
 #[derive(Clone, Debug, Default)]
 pub struct AABB<Point> {
@@ -160,5 +165,23 @@ where
 
     fn select(self, cond: Self::SimdBool, other: Self) -> Self {
         self.zip_map_coords(&other, |x, y| x.select(cond, y.clone()))
+    }
+}
+
+impl AABB<WorldPoint> {
+    pub fn from_points<I>(points: I) -> Option<AABB<WorldPoint>>
+    where
+        I: IntoIterator,
+        I::Item: Borrow<WorldPoint>,
+    {
+        let mut it = points.into_iter();
+        let first = it.next()?.borrow().clone();
+        Some(it.fold(AABB::new(first, first), |acc, p| {
+            AABB::new(acc.min.inf(p.borrow()), acc.max.sup(p.borrow()))
+        }))
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.size().product()
     }
 }

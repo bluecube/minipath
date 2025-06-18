@@ -1738,6 +1738,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "index_vec"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44faf5bb8861a9c72e20d3fb0fdbd59233e43056e2b80475ab0aacdc2e781355"
+
+[[package]]
 name = "indexmap"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2035,12 +2041,12 @@ name = "minipath"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "arrayvec",
  "assert2",
  "core_affinity",
  "eframe",
  "egui",
  "image",
+ "index_vec",
  "indexmap",
  "itertools 0.14.0",
  "morton-encoding",

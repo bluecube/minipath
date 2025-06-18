@@ -35,7 +35,7 @@ morton-encoding = "2.0.1"
 itertools = "0.14.0"
 thiserror = "2.0.12"
 indexmap = "2.9.0"
-arrayvec = "0.7.6"
+index_vec = "0.1.4"
 
 [dev-dependencies]
 proptest = "1.6.0"

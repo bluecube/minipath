@@ -1,11 +1,12 @@
-use std::{array, borrow::Borrow, fs, path::Path};
+use std::{array, fs, path::Path};
 
 use crate::{
     geometry::{TexturePoint, Triangle, WorldBox, WorldBox8, WorldPoint, WorldPoint8, WorldVector},
-    util::{collect_to_array, simba::simd_windows},
+    scene::triangle_bvh::TriangleShadingData,
+    util::simba::simd_windows,
 };
 
-use arrayvec::ArrayVec;
+use index_vec::IndexVec;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use morton_encoding::morton_encode;
@@ -13,8 +14,8 @@ use simba::simd::{SimdValue, WideF32x8};
 use thiserror::Error;
 
 use super::{
-    INNER_NODE_CHILDREN, InnerNode, LEAF_NODE_TRIANGLES, LEAF_NODE_VERTICES, LeafGeometry,
-    LeafShadingData, NodeLink, TriangleBvh,
+    CompressedNodeLink, INNER_NODE_CHILDREN, InnerNode, LEAF_NODE_MAX_TRIANGLES,
+    LEAF_NODE_PACKET_SIZE, TriangleBvh,
     compressed_geometry::{RelativeBox8, RelativeTriangle8},
 };
 
@@ -77,19 +78,28 @@ impl TriangleBvh {
     }
 
     pub fn build(mut triangles: Vec<Triangle<usize>>, vertices: Vec<VertexData>) -> TriangleBvh {
-        let bounding_box = get_aabb(vertices_iter(&triangles, &vertices)).unwrap_or_default();
+        let bounding_box =
+            WorldBox::from_points(vertices_iter(&triangles, &vertices)).unwrap_or_default();
 
         let mut bvh = TriangleBvh {
             bounding_box: bounding_box.clone(),
-            root: NodeLink::default(),
+            root: CompressedNodeLink::default(),
 
-            inner_node_arena: Vec::new(),
-            leaf_geometry_arena: Vec::new(),
-            leaf_shading_data_arena: Vec::new(),
+            inner_nodes: IndexVec::new(),
+            triangle_geometry: IndexVec::new(),
+            triangle_shading_data: IndexVec::new(),
+            vertex_data: IndexVec::new(),
         };
 
         morton_sort(&mut triangles, &vertices);
         bvh.root = bvh.build_recursive(&mut triangles, &vertices, &bounding_box);
+        bvh.vertex_data = vertices
+            .into_iter()
+            .map(|v| super::VertexShadingData {
+                normal: v.normal,
+                texture_coords: v.tex,
+            })
+            .collect();
 
         bvh
     }
@@ -99,9 +109,12 @@ impl TriangleBvh {
         triangles: &mut [Triangle<usize>],
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
-    ) -> NodeLink {
-        self.build_leaf(triangles, vertices, enclosing_box)
-            .unwrap_or_else(|| self.build_inner_node(triangles, vertices, enclosing_box))
+    ) -> CompressedNodeLink {
+        if triangles.len() <= LEAF_NODE_MAX_TRIANGLES {
+            self.build_leaf(triangles, vertices, enclosing_box)
+        } else {
+            self.build_inner_node(triangles, vertices, enclosing_box)
+        }
     }
 
     fn build_inner_node(
@@ -109,24 +122,17 @@ impl TriangleBvh {
         triangles: &mut [Triangle<usize>],
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
-    ) -> NodeLink {
-        let split_indices = array::from_fn::<_, { INNER_NODE_CHILDREN + 1 }, _>(|i| {
-            i * triangles.len() / INNER_NODE_CHILDREN
-        });
-
-        // TODO: Perf: Optimize the split
-        // Be careful, that any optimization will destroy the morton ordering and we will need to re-sort.
-
-        // Index of the node that we will be adding
-        let node_index = self.inner_node_arena.len();
+    ) -> CompressedNodeLink {
+        let split_indices = split_triangles(triangles, vertices, enclosing_box);
 
         // Create placeholder node that will be overwriten later
-        self.inner_node_arena.push(InnerNode::default());
+        self.inner_nodes.push(InnerNode::default());
+        let node_index = self.inner_nodes.last_idx();
 
         let mut child_boxes = WorldBox8::default();
         for (i, (index1, index2)) in split_indices.iter().tuple_windows().enumerate() {
             let triangles = &mut triangles[*index1..*index2];
-            if let Some(child_box) = get_aabb(vertices_iter(triangles, vertices)) {
+            if let Some(child_box) = WorldBox::from_points(vertices_iter(triangles, vertices)) {
                 child_boxes.replace(i, child_box);
             }
         }
@@ -144,12 +150,12 @@ impl TriangleBvh {
         });
 
         // Replace the placeholder with an actual inner node
-        self.inner_node_arena[node_index] = InnerNode {
+        self.inner_nodes[node_index] = InnerNode {
             child_bounds: compressed_child_boxes,
             child_links,
         };
 
-        NodeLink::new_inner(node_index)
+        CompressedNodeLink::new_inner(node_index)
     }
 
     fn build_leaf(
@@ -157,16 +163,18 @@ impl TriangleBvh {
         triangles: &[Triangle<usize>],
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
-    ) -> Option<NodeLink> {
-        if triangles.len() > LEAF_NODE_TRIANGLES {
-            return None;
-        }
-
+    ) -> CompressedNodeLink {
         let enclosing_box = WorldBox8::splat(enclosing_box.clone());
 
-        let link = NodeLink::new_leaf(self.leaf_geometry_arena.len());
+        assert!(!triangles.is_empty());
+        let packet_count = triangles.len().div_ceil(LEAF_NODE_PACKET_SIZE);
+        let padded_triangle_count = packet_count * LEAF_NODE_PACKET_SIZE;
+        let padding = padded_triangle_count - triangles.len();
 
-        let geometry = collect_to_array(
+        let link =
+            CompressedNodeLink::new_leaf(self.triangle_geometry.next_idx(), packet_count as u32);
+
+        self.triangle_geometry.extend(
             simd_windows(
                 triangles
                     .iter()
@@ -186,52 +194,16 @@ impl TriangleBvh {
             ),
         );
 
-        // Mapping of vertex indices -- values are indices into the `vertices` slice,
-        // position determines the position in current leaf (= the index in current leaf)
-        let mut vertex_mapping = ArrayVec::<usize, LEAF_NODE_VERTICES>::new();
-        let mut too_many_vertices = false;
+        self.triangle_shading_data
+            .extend(triangles.iter().map(|t| TriangleShadingData {
+                vertex_indices: t.clone(),
+                flat_shading: t.iter().any(|i| vertices[*i].normal.norm_squared() == 0.0),
+                material: 0,
+            }));
+        self.triangle_shading_data
+            .extend((0..padding).into_iter().map(|_| Default::default()));
 
-        let vertex_indices = collect_to_array(triangles.iter().map(|t| {
-            t.map(|source_index| {
-                vertex_mapping
-                    .iter()
-                    .position(|x| source_index == x)
-                    .unwrap_or_else(|| {
-                        let mapped_index = vertex_mapping.len();
-                        vertex_mapping.try_push(*source_index).unwrap_or_else(|_| {
-                            too_many_vertices = true;
-                        });
-                        mapped_index
-                    })
-            })
-        }));
-
-        if too_many_vertices {
-            return None;
-        }
-
-        let flat_shading = collect_to_array(
-            triangles
-                .iter()
-                .map(|t| t.iter().any(|i| vertices[*i].normal.norm() == 0.0)),
-        );
-
-        let normals = collect_to_array(vertex_mapping.iter().map(|index| vertices[*index].normal));
-        let texture_coords =
-            collect_to_array(vertex_mapping.iter().map(|index| vertices[*index].tex));
-
-        self.leaf_geometry_arena.push(LeafGeometry {
-            triangles: geometry,
-        });
-        self.leaf_shading_data_arena.push(LeafShadingData {
-            material: 0, // TODO
-            vertex_indices,
-            flat_shading,
-
-            normals,
-            texture_coords,
-        });
-        Some(link)
+        link
     }
 }
 
@@ -254,7 +226,7 @@ pub struct VertexData {
 fn morton_sort(triangles: &mut [Triangle<usize>], vertices: &[VertexData]) {
     const GRID_BITS: usize = 10;
 
-    let Some(bounds) = get_aabb(centroids_iter(triangles, vertices)) else {
+    let Some(bounds) = WorldBox::from_points(centroids_iter(triangles, vertices)) else {
         return;
     };
     let min = bounds.min;
@@ -270,18 +242,6 @@ fn morton_sort(triangles: &mut [Triangle<usize>], vertices: &[VertexData]) {
 
         morton_encode(grid_coordinates)
     });
-}
-
-fn get_aabb<I>(points: I) -> Option<WorldBox>
-where
-    I: IntoIterator,
-    I::Item: Borrow<WorldPoint>,
-{
-    let mut it = points.into_iter();
-    let first = it.next()?.borrow().clone();
-    Some(it.fold(WorldBox::new(first, first), |acc, p| {
-        WorldBox::new(acc.min.inf(p.borrow()), acc.max.sup(p.borrow()))
-    }))
 }
 
 fn triangle_centroid(triangle: &Triangle<usize>, vertices: &[VertexData]) -> WorldPoint {
@@ -313,4 +273,24 @@ fn centroids_iter(
     triangles
         .iter()
         .map(|triangle| triangle_centroid(triangle, vertices))
+}
+
+/// Reorder the triangles and return an array of indices in the triangle array, where the
+/// output bins should be split. Array is one larger than INNER_NODE_CHILDREN, first item is always 0,
+/// last item is always triangles.size().
+fn split_triangles(
+    triangles: &mut [Triangle<usize>],
+    _vertices: &[VertexData],
+    _enclosing_box: &WorldBox,
+) -> [usize; INNER_NODE_CHILDREN + 1] {
+    // const TARGET_BIN_COUNT: usize = 128;
+    // let bin_size = (enclosing_box.volume() / (TARGET_BIN_COUNT as f32)).cbrt();
+    // let bin_counts = (enclosing_box.size() / bin_size).map(|x| x.ceil() as usize);
+    // dbg!(enclosing_box);
+    // dbg!(bin_size);
+    // dbg!(bin_counts);
+
+    array::from_fn::<_, { INNER_NODE_CHILDREN + 1 }, _>(|i| {
+        i * triangles.len() / INNER_NODE_CHILDREN
+    })
 }

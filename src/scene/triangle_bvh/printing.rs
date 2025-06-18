@@ -1,138 +1,97 @@
-use simba::simd::SimdValue as _;
+use crate::util::{Stats, simba::simd_element_iter};
 
-use crate::{
-    geometry::{WorldBox, WorldBox8},
-    util::{Stats, simba::simd_element_iter},
-};
-
-use super::{LEAF_NODE_TRIANGLES, LeafGeometry, NodeLink, TriangleBvh};
-
-use assert2::assert;
+use super::{CompressedNodeLink, TriangleBvh};
 
 impl TriangleBvh {
     pub fn print_tree(&self) {
-        self.print_recursive(0, self.root, &self.bounding_box);
+        todo!()
+        // self.print_recursive(0, self.root, &self.bounding_box);
     }
 
     pub fn print_statistics(&self) {
-        let depth = self.depth_statistics_recursive(self.root);
-        let inner = self.inner_node_fill_statistics();
-        let leaf = self.leaf_node_fill_statistics();
-        println!("Depth: {} - {}; avg {:.1}", depth.min, depth.max, depth.avg);
-        println!("Inner node child count: {}", inner);
+        let (depth, inner, leaf) = self.statistics_recursive(self.root);
+        println!("Triangle count: {}", self.triangle_shading_data.len());
+        println!("Vertex count: {}", self.vertex_data.len());
+        println!("Leaf depth: {}", depth);
+        println!("Inner node fill: {}", inner);
         println!("Leaf nodes fill: {}", leaf);
     }
 
-    fn depth_statistics_recursive(&self, node: NodeLink) -> Stats {
-        if node.is_leaf() {
-            return Stats::new_single(1);
-        }
+    /// Returns (depth stats, inner node fill stats, leaf fill stats)
+    fn statistics_recursive(&self, node: CompressedNodeLink) -> (Stats, Stats, Stats) {
+        match node.decode() {
+            super::NodeLink::Null => (Stats::default(), Stats::default(), Stats::default()),
+            super::NodeLink::Inner { index } => {
+                let node = &self.inner_nodes[index];
 
-        let node = &self.inner_node_arena[node.index()];
+                let mut depth_stats = Stats::default();
+                let mut inner_stats = Stats::default();
+                let mut leaf_stats = Stats::default();
 
-        let mut ret = node
-            .child_links
-            .iter()
-            .map(|child| self.depth_statistics_recursive(*child))
-            .reduce(|a, b| a.merge(&b))
-            .unwrap();
+                let mut child_count = 0;
 
-        ret.min += 1;
-        ret.max += 1;
-        ret.avg += 1.0;
+                for child in node.child_links.iter() {
+                    if child.is_null() {
+                        continue;
+                    }
 
-        ret
-    }
+                    let (child_depth_stats, child_inner_stats, child_leaf_stats) =
+                        self.statistics_recursive(*child);
 
-    fn inner_node_fill_statistics(&self) -> Stats {
-        let mut stats = Stats::default();
+                    depth_stats = depth_stats.merge(&child_depth_stats);
+                    inner_stats = inner_stats.merge(&child_inner_stats);
+                    leaf_stats = leaf_stats.merge(&child_leaf_stats);
 
-        stats.add_samples(self.inner_node_arena.iter().map(|child| {
-            child
-                .child_links
-                .iter()
-                .filter(|link| !link.is_leaf() || link.index() != 0)
-                .count()
-        }));
+                    child_count += 1;
+                }
 
-        stats
-    }
+                depth_stats.min += 1;
+                depth_stats.max += 1;
+                depth_stats.avg += 1.0;
+                inner_stats.add_sample(child_count);
 
-    fn leaf_node_fill_statistics(&self) -> Stats {
-        let mut stats = Stats::default();
-
-        stats.add_samples(
-            self.leaf_geometry_arena
-                .iter()
-                .map(|leaf| leaf.used_triangles()),
-        );
-
-        stats
-    }
-
-    fn print_recursive(&self, indent: usize, node: NodeLink, enclosing_box: &WorldBox) {
-        println!(
-            "{}- {}{}: {:?}-{:?}",
-            "  ".repeat(indent),
-            if node.is_leaf() { "L" } else { "I" },
-            node.index(),
-            enclosing_box.min,
-            enclosing_box.max,
-        );
-
-        let enclosing_box = WorldBox8::splat(enclosing_box.clone());
-
-        if node.is_leaf() {
-            self.leaf_geometry_arena[node.index()].print(indent, &enclosing_box);
-            return;
-        }
-
-        let node = &self.inner_node_arena[node.index()];
-        let child_boxes = node.child_bounds.decompress(&enclosing_box);
-
-        for (i, child_link) in node.child_links.iter().enumerate() {
-            let child_box = child_boxes.extract(i);
-            self.print_recursive(indent + 1, *child_link, &child_box);
-        }
-    }
-}
-
-impl LeafGeometry {
-    fn print(&self, indent: usize, enclosing_box: &WorldBox8) {
-        let indent = "  ".repeat(indent + 1);
-
-        let mut empty_count = 0;
-        for (empty, triangle) in self.triangles.iter().flat_map(|ts| {
-            let empty = ts[0].is_zero() & ts[1].is_zero() & ts[2].is_zero();
-            let decompressed = ts.decompress(enclosing_box);
-            simd_element_iter(empty).zip(simd_element_iter(decompressed))
-        }) {
-            if empty {
-                empty_count += 1;
-            } else {
-                assert!(empty_count == 0);
-                println!(
-                    "{}{:?}, {:?}, {:?}",
-                    indent, triangle[0], triangle[1], triangle[2]
+                (depth_stats, inner_stats, leaf_stats)
+            }
+            super::NodeLink::Leaf { indices } => {
+                let leaf_fill = self.triangle_geometry[indices.into_range()]
+                    .iter()
+                    .flat_map(|ts| {
+                        simd_element_iter(ts[0].is_zero() & ts[1].is_zero() & ts[2].is_zero())
+                    })
+                    .filter(|x| !*x)
+                    .count();
+                (
+                    Stats::new_single(1),
+                    Stats::default(),
+                    Stats::new_single(leaf_fill),
                 )
             }
         }
-
-        if empty_count > 0 {
-            println!("{}{}x <EMPTY>", indent, empty_count);
-        }
     }
 
-    fn used_triangles(&self) -> usize {
-        LEAF_NODE_TRIANGLES
-            - self
-                .triangles
-                .iter()
-                .flat_map(|ts| {
-                    let empty = ts[0].is_zero() & ts[1].is_zero() & ts[2].is_zero();
-                    simd_element_iter(empty)
-                })
-                .filter(|x| *x)
-                .count()
-    }
+    // fn print_recursive(&self, indent: usize, node: CompressedNodeLink, enclosing_box: &WorldBox) {
+    //     println!(
+    //         "{}- {}{}: {:?}-{:?}",
+    //         "  ".repeat(indent),
+    //         if node.is_leaf() { "L" } else { "I" },
+    //         node.index(),
+    //         enclosing_box.min,
+    //         enclosing_box.max,
+    //     );
+
+    //     let enclosing_box = WorldBox8::splat(enclosing_box.clone());
+
+    //     if node.is_leaf() {
+    //         self.leaf_geometry_arena[node.index()].print(indent, &enclosing_box);
+    //         return;
+    //     }
+
+    //     let node = &self.inner_node_arena[node.index()];
+    //     let child_boxes = node.child_bounds.decompress(&enclosing_box);
+
+    //     for (i, child_link) in node.child_links.iter().enumerate() {
+    //         let child_box = child_boxes.extract(i);
+    //         self.print_recursive(indent + 1, *child_link, &child_box);
+    //     }
+    // }
 }

@@ -2,7 +2,6 @@ pub mod simba;
 mod stats;
 
 pub use stats::Stats;
-use std::array;
 
 pub fn bit_iter(bits: u64) -> BitIter {
     BitIter { bits }
@@ -33,13 +32,6 @@ impl Iterator for BitIter {
 
 pub type Rgba = rgb::RGBA<f32>;
 
-/// Converts an iterator into an array of N elements.
-/// Ignores any extra values, fills missing values with defaults.
-pub fn collect_to_array<T: Default, const N: usize>(values: impl IntoIterator<Item = T>) -> [T; N] {
-    let mut iter = values.into_iter();
-    array::from_fn(|_| iter.next().unwrap_or_default())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,26 +53,5 @@ mod tests {
     fn bit_iter_empty() {
         let result: Vec<usize> = bit_iter(0).collect();
         assert!(result.is_empty());
-    }
-
-    #[test]
-    fn collect_to_array_exact() {
-        let input = [1, 2, 3];
-        let output: [i32; 3] = collect_to_array(input);
-        assert!(output == [1, 2, 3]);
-    }
-
-    #[test]
-    fn collect_to_array_too_short() {
-        let input = [1, 2];
-        let output: [i32; 3] = collect_to_array(input);
-        assert!(output == [1, 2, 0]);
-    }
-
-    #[test]
-    fn collect_to_array_too_long() {
-        let input = [1, 2, 3, 4, 5];
-        let output: [i32; 3] = collect_to_array(input);
-        assert!(output == [1, 2, 3]);
     }
 }
