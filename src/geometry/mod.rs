@@ -3,15 +3,11 @@ mod ray_box_intersection;
 mod ray_triangle_intersection;
 mod triangle;
 
-use std::ops::{Mul, Sub};
-
 use nalgebra::{Point2, Point3, Unit, Vector2, Vector3};
 
 pub use aabb::AABB;
-use num_traits::One;
 pub use ray_box_intersection::RayIntersectionExt;
-use simba::{scalar::ClosedAdd, simd::SimdValue};
-pub use triangle::Triangle;
+pub use triangle::{BarycentricCoordinates, Triangle};
 
 pub type FloatType = f32;
 pub type SimdFloatType = simba::simd::WideF32x8;
@@ -81,82 +77,4 @@ pub struct HitRecord {
     pub normal: Unit<WorldVector>,
     pub material: u32,
     pub texture_coordinates: TexturePoint,
-}
-
-#[derive(Copy, Clone, Debug, Default)]
-pub struct BarycentricCoordinates<T: SimdValue> {
-    pub u: T,
-    pub v: T,
-}
-
-impl<T> BarycentricCoordinates<T>
-where
-    T: SimdValue + One + Copy + Sub<Output = T>,
-{
-    pub fn interpolate<T2>(&self, a: &T2, b: &T2, c: &T2) -> T2
-    where
-        for<'a> &'a T2: Mul<T, Output = T2>,
-        T2: ClosedAdd,
-    {
-        let w = T::one() - self.u - self.v;
-        a * w + b * self.u + c * self.v
-    }
-
-    pub fn interpolate_triangle<T2>(&self, triangle: &Triangle<T2>) -> T2
-    where
-        for<'a> &'a T2: Mul<T, Output = T2>,
-        T2: ClosedAdd,
-    {
-        self.interpolate(&triangle[0], &triangle[1], &triangle[2])
-    }
-}
-
-impl<T: SimdValue> SimdValue for BarycentricCoordinates<T> {
-    const LANES: usize = T::LANES;
-
-    type Element = BarycentricCoordinates<T::Element>;
-
-    type SimdBool = T::SimdBool;
-
-    fn splat(val: Self::Element) -> Self {
-        BarycentricCoordinates {
-            u: T::splat(val.u),
-            v: T::splat(val.v),
-        }
-    }
-
-    fn extract(&self, i: usize) -> Self::Element {
-        BarycentricCoordinates {
-            u: self.u.extract(i),
-            v: self.v.extract(i),
-        }
-    }
-
-    unsafe fn extract_unchecked(&self, i: usize) -> Self::Element {
-        unsafe {
-            BarycentricCoordinates {
-                u: self.u.extract_unchecked(i),
-                v: self.v.extract_unchecked(i),
-            }
-        }
-    }
-
-    fn replace(&mut self, i: usize, val: Self::Element) {
-        self.u.replace(i, val.u);
-        self.v.replace(i, val.v);
-    }
-
-    unsafe fn replace_unchecked(&mut self, i: usize, val: Self::Element) {
-        unsafe {
-            self.u.replace_unchecked(i, val.u);
-            self.v.replace_unchecked(i, val.v);
-        }
-    }
-
-    fn select(self, cond: Self::SimdBool, other: Self) -> Self {
-        BarycentricCoordinates {
-            u: self.u.select(cond, other.u),
-            v: self.v.select(cond, other.v),
-        }
-    }
 }

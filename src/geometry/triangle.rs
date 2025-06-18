@@ -1,11 +1,11 @@
-use std::ops::{Index, IndexMut, Sub};
+use std::ops::{Index, IndexMut, Mul, Sub};
 
 use nalgebra::{
     ClosedAddAssign, ClosedDivAssign, ClosedMulAssign, ClosedSubAssign, DefaultAllocator, DimName,
     OPoint, OVector, Scalar, allocator::Allocator,
 };
-use num_traits::Zero;
-use simba::simd::SimdValue;
+use num_traits::{One, Zero};
+use simba::{scalar::ClosedAdd, simd::SimdValue};
 
 #[derive(Clone, Debug)]
 pub struct Triangle<Point>([Point; 3]);
@@ -168,5 +168,83 @@ where
 
     fn select(self, cond: Self::SimdBool, other: Self) -> Self {
         self.zip_map_coords(&other, |x, y| x.select(cond, y.clone()))
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct BarycentricCoordinates<T: SimdValue> {
+    pub u: T,
+    pub v: T,
+}
+
+impl<T> BarycentricCoordinates<T>
+where
+    T: SimdValue + One + Copy + Sub<Output = T>,
+{
+    pub fn interpolate<T2>(&self, a: &T2, b: &T2, c: &T2) -> T2
+    where
+        for<'a> &'a T2: Mul<T, Output = T2>,
+        T2: ClosedAdd,
+    {
+        let w = T::one() - self.u - self.v;
+        a * w + b * self.u + c * self.v
+    }
+
+    pub fn interpolate_triangle<T2>(&self, triangle: &Triangle<T2>) -> T2
+    where
+        for<'a> &'a T2: Mul<T, Output = T2>,
+        T2: ClosedAdd,
+    {
+        self.interpolate(&triangle[0], &triangle[1], &triangle[2])
+    }
+}
+
+impl<T: SimdValue> SimdValue for BarycentricCoordinates<T> {
+    const LANES: usize = T::LANES;
+
+    type Element = BarycentricCoordinates<T::Element>;
+
+    type SimdBool = T::SimdBool;
+
+    fn splat(val: Self::Element) -> Self {
+        BarycentricCoordinates {
+            u: T::splat(val.u),
+            v: T::splat(val.v),
+        }
+    }
+
+    fn extract(&self, i: usize) -> Self::Element {
+        BarycentricCoordinates {
+            u: self.u.extract(i),
+            v: self.v.extract(i),
+        }
+    }
+
+    unsafe fn extract_unchecked(&self, i: usize) -> Self::Element {
+        unsafe {
+            BarycentricCoordinates {
+                u: self.u.extract_unchecked(i),
+                v: self.v.extract_unchecked(i),
+            }
+        }
+    }
+
+    fn replace(&mut self, i: usize, val: Self::Element) {
+        self.u.replace(i, val.u);
+        self.v.replace(i, val.v);
+    }
+
+    unsafe fn replace_unchecked(&mut self, i: usize, val: Self::Element) {
+        unsafe {
+            self.u.replace_unchecked(i, val.u);
+            self.v.replace_unchecked(i, val.v);
+        }
+    }
+
+    fn select(self, cond: Self::SimdBool, other: Self) -> Self {
+        BarycentricCoordinates {
+            u: self.u.select(cond, other.u),
+            v: self.v.select(cond, other.v),
+        }
     }
 }
