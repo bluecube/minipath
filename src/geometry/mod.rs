@@ -75,6 +75,6 @@ pub struct HitRecord {
     pub point: WorldPoint,
     /// Normalized normal vector
     pub normal: Unit<WorldVector>,
-    pub material: u32,
-    pub texture_coordinates: TexturePoint,
+    pub material: usize,
+    pub texture_coords: TexturePoint,
 }

@@ -40,7 +40,7 @@ struct LeafGeometry {
 /// normals and texture_coords are indexed using LeafNodeGeomerty::vertex_indices
 #[derive(Clone, Debug, Default)]
 struct LeafShadingData {
-    material: u32,
+    material: usize,
 
     /// Vertex indices -- Fields correspond to triangles in LeafGeometry,
     /// indices point into normals and texture_coords of this struct.

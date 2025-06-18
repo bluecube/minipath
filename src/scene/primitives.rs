@@ -39,7 +39,7 @@ impl Object for Sphere {
             point,
             normal,
             material: 0,
-            texture_coordinates: TexturePoint::origin(), // TODO?
+            texture_coords: TexturePoint::origin(), // TODO?
         })
     }
 

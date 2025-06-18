@@ -72,8 +72,8 @@ impl Object for TriangleBvh {
                 t: nearest_t,
                 point: ray.point_at(nearest_t),
                 normal,
-                texture_coordinates,
                 material: shading_data.material,
+                texture_coords: texture_coordinates,
             })
         }
     }
