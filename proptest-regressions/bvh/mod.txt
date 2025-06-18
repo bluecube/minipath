@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc dbd79abe381379b7ac6065514f8fa865aca16d92fb4b1cd509d941474010c5a4 # shrinks to input = _ChildLinkConstructionArgs { index: 1, is_leaf: false }

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6998ad53254a1a21cf847092657ae7bc117a213b360e635d659438cf8c5d45fb # shrinks to input = _BvhSizeTagConstructionArgs { size: 1, is_leaf: false }

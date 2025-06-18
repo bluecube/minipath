@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 75a4eb5f7a70fad5fe950f2fcd5b2183892725c6de88af697c93a123ac48b39e # shrinks to input = _NodeLinkConstructionInnerArgs { index: 536870911 }
+cc 3f6066b4051af005b34ca7ab2c22bef9318e34466fccd016721511c50307ea7c # shrinks to input = _NodeLinkConstructionLeafArgs { index: 536870912, count: 1 }

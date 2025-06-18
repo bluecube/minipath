@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c2a0783a49005caa7d3dd0a90c83c5ee9ddbcdae876a6e98162fd400e62b27b4 # shrinks to input = _CompressedUnitIntervalRoundTripRoundArgs { v: 0.8547291 }
+cc 2f0147cbbc4c572bfa9f8cb4ebb6dbe54e6fcff892edb2f069af2ff9f3e84bcb # shrinks to input = _CompressedUnitIntervalRoundTripCeilArgs { v: 0.21059631 }

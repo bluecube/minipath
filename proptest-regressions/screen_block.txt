@@ -7,3 +7,5 @@
 cc f528f9aa70b260f1dbf58455066401313665bdf4fb049e267db53c0357fbe65f # shrinks to x = 0, y = 0, w = 0, h = 0
 cc 13b30a4251ce5d5a6fc17e9fe1e66256289bdfb44e5c1f64b8f0b5d063f1e049 # shrinks to block = ScreenBlockWrapper(Box2D((0,12), (0,0)))
 cc 7681db221857599dd6ad688a87365766c89723c32cfcdb4f91c388cd6f670546 # shrinks to block = ScreenBlockWrapper(Box2D((0,1), (0,0))), chunk_size_minus_one = 0
+cc 84449f6536e24f42bdeb46e3b55cf193284c0a261c66cae6ac089d862fc4b688 # shrinks to block = ScreenBlockWrapper(Box2D((0, 0), (1, 86))), tile_size_minus_one = 0
+cc a0a0298d2853463a7a0e43bf840b2c9a92019c3fcfa0d044d98e23d3278b80e7 # shrinks to input = _PixelIteratorCoversAllArgs { block: AABB { min: [0, 0], max: [0, 1] } }
