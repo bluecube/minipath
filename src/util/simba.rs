@@ -58,6 +58,14 @@ pub fn fma_dot(a: &WorldVector8, b: &WorldVector8) -> SimdFloatType {
     WideF32x8(a.z.0.mul_add(b.z.0, a.y.0.mul_add(b.y.0, a.x.0 * b.x.0)))
 }
 
+pub fn fma_cross(a: &WorldVector8, b: &WorldVector8) -> WorldVector8 {
+    let x = a.y.0.mul_sub(b.z.0, a.z.0 * b.y.0);
+    let y = a.z.0.mul_sub(b.x.0, a.x.0 * b.z.0);
+    let z = a.x.0.mul_sub(b.y.0, a.y.0 * b.x.0);
+
+    WorldVector8::new(WideF32x8(x), WideF32x8(y), WideF32x8(z))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +137,32 @@ mod tests {
                 e,
                 a
             );
+        }
+    }
+
+    #[proptest]
+    fn fma_cross_matches_nalgebra_cross(
+        #[strategy(world_vector8_strategy())] a: WorldVector8,
+        #[strategy(world_vector8_strategy())] b: WorldVector8,
+    ) {
+        let expected = a.cross(&b);
+        let actual = fma_cross(&a, &b);
+
+        for i in 0..8 {
+            let e = expected.map(|x| x.extract(i));
+            let a = actual.map(|x| x.extract(i));
+
+            for j in 0..3 {
+                let difference = (e[j] - a[j]).abs();
+                prop_assert!(
+                    difference < 1e-3 || difference < e[j].abs() * 1e-3,
+                    "Mismatch at lane {}, dimension {}: expected {}, got {}",
+                    i,
+                    j,
+                    e[j],
+                    a[j]
+                );
+            }
         }
     }
 }

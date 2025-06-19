@@ -1,6 +1,6 @@
 use crate::{
     geometry::{Ray, SimdFloatType},
-    util::simba::fma_dot,
+    util::simba::{fma_cross, fma_dot},
 };
 
 use simba::simd::{SimdPartialOrd as _, SimdValue};
@@ -25,14 +25,14 @@ impl Triangle<WorldPoint8> {
         let e1 = self[1] - self[0];
         let e2 = self[2] - self[0];
 
-        let ray_cross_e2 = direction.cross(&e2);
+        let ray_cross_e2 = fma_cross(&direction, &e2);
         let det = fma_dot(&e1, &ray_cross_e2);
 
         let inv_det = SimdFloatType::ONE / det; // May be infinite
         let s = origin - self[0];
         let u = inv_det * fma_dot(&s, &ray_cross_e2);
 
-        let s_cross_e1 = s.cross(&e1);
+        let s_cross_e1 = fma_cross(&s, &e1);
         let v = inv_det * fma_dot(&direction, &s_cross_e1);
         let t = inv_det * fma_dot(&e2, &s_cross_e1);
 
