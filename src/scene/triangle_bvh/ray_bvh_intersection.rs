@@ -17,14 +17,14 @@ use crate::{
 
 impl Object for TriangleBvh {
     fn intersect(&self, ray: &Ray) -> Option<HitRecord> {
-        let mut queue = vec![(self.root, self.bounding_box.clone())];
+        let mut stack = vec![(self.root, self.bounding_box.clone())];
 
         let mut best = LeafHitRecord {
             t: FloatType::MAX,
             ..LeafHitRecord::default()
         };
 
-        while let Some((link, enclosing_box)) = queue.pop() {
+        while let Some((link, enclosing_box)) = stack.pop() {
             // TODO: Perf: max_t might have decreased since we added this node to the queue -- is it worth re-checking box collision again?
             // For this the queue should also hold the box's t2 to make the check quick
             match link.decode() {
@@ -34,7 +34,7 @@ impl Object for TriangleBvh {
                     for (_t1, _t2, link, bb) in node.intersect(ray, &enclosing_box, best.t) {
                         // TODO: Perf: Sort based on t1 before inserting, lower t1 should be added last
                         // (= first to be popped, because it has the best chance of decreasing nearest_t)
-                        queue.push((link, bb));
+                        stack.push((link, bb));
                     }
                 }
                 super::NodeLink::Leaf { indices } => {
