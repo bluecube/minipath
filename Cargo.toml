@@ -12,6 +12,10 @@ name = "minipath"
 name = "minipath-gui"
 path = "src/gui.rs"
 
+[[bench]]
+name = "render_teapot"
+harness = false
+
 [dependencies]
 image = "0.25.6"
 rand = { version = "0.9.1", features = ["small_rng"]}
@@ -41,6 +45,7 @@ index_vec = "0.1.4"
 proptest = "1.6.0"
 test-strategy = "0.4.1"
 test-case = "3.3.1"
+criterion = { version = "0.6.0", features = ["html_reports"] }
 
 [profile.release]
 lto = true

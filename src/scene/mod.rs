@@ -11,6 +11,7 @@ pub trait Object {
     fn get_bounding_box(&self) -> WorldBox;
 }
 
+#[derive(Clone)]
 pub struct Scene<O: Object> {
     pub object: O,
 }
