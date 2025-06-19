@@ -41,7 +41,7 @@ impl<O: Object + Send + Sync + 'static> MinipathGui<O> {
         let tile_finished_callback = {
             let dirty = Arc::clone(&dirty);
             let ctx = cc.egui_ctx.clone();
-            move |tile| {
+            move |tile, _| {
                 dirty.lock().unwrap().push(tile);
                 ctx.request_repaint();
             }
@@ -128,7 +128,7 @@ fn main() -> anyhow::Result<()> {
 
             let settings = RenderSettings {
                 tile_size: 64.try_into().unwrap(),
-                sample_count: 10.try_into().unwrap(),
+                sample_count: 2.try_into().unwrap(),
             };
             let scene = Scene {
                 object: TriangleBvh::with_obj("data/teapot.obj").unwrap(),

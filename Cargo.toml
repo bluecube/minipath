@@ -12,6 +12,10 @@ name = "minipath"
 name = "minipath-gui"
 path = "src/gui.rs"
 
+[[bin]]
+name = "minipath-cli"
+path = "src/cli.rs"
+
 [[bench]]
 name = "render_teapot"
 harness = false
@@ -26,8 +30,6 @@ anyhow = "1.0.98"
 test-strategy = "0.4.1"
 core_affinity = "0.8.3"
 ordered-float = "5.0.0"
-egui = "0.31.1"
-eframe = "0.31.1"
 wide = "0.7.32"
 wavefront_obj = "11.0.0"
 assert2 = "0.3.15"
@@ -40,6 +42,15 @@ itertools = "0.14.0"
 thiserror = "2.0.12"
 indexmap = "2.9.0"
 index_vec = "0.1.4"
+bon = "3.6.4"
+
+# GUI only:
+egui = "0.31.1"
+eframe = "0.31.1"
+
+# CLI only:
+indicatif = "0.17.11"
+
 
 [dev-dependencies]
 proptest = "1.6.0"

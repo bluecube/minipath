@@ -20,7 +20,7 @@ use crate::{
 pub fn render<
     O: Object + Send + Sync + 'static,
     F1: Fn(ScreenBlock) + Send + Sync + 'static,
-    F2: Fn(ScreenBlock) + Send + Sync + 'static,
+    F2: Fn(ScreenBlock, RenderProgressSnapshot) + Send + Sync + 'static,
 >(
     scene: Scene<O>,
     camera: Camera,
@@ -65,8 +65,13 @@ pub fn render<
                     let mut worker = Worker::<O>::new(worker_id);
                     let mut buffer =
                         RgbaImage::new(settings.tile_size.into(), settings.tile_size.into());
+                    let tile_count = state.tile_ordering.len();
 
-                    while let Some(tile) = state.get_next_tile() {
+                    let (_, Some(mut tile)) = state.get_next_tile() else {
+                        return;
+                    };
+
+                    loop {
                         (started_tile_callback)(tile.clone());
 
                         worker.render_tile(
@@ -89,7 +94,20 @@ pub fn render<
                                 unreachable!("The buffer should always fit into the output")
                             });
 
-                        (finished_tile_callback)(tile.clone());
+                        let (new_tile_id, new_tile) = state.get_next_tile();
+
+                        (finished_tile_callback)(
+                            tile.clone(),
+                            RenderProgressSnapshot {
+                                finished: new_tile_id.saturating_sub(worker_count),
+                                total: tile_count,
+                            },
+                        );
+
+                        match new_tile {
+                            Some(new_tile) => tile = new_tile,
+                            None => break,
+                        }
                     }
 
                     let elapsed = Instant::elapsed(&state.start_time);
@@ -105,30 +123,28 @@ pub fn render<
 
     Ok(RenderProgress {
         render_state: state,
+        worker_count,
         threads,
     })
 }
 
 pub struct RenderProgress<O: Object> {
     render_state: Arc<RenderState<O>>,
+    worker_count: usize,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl<O: Object> RenderProgress<O> {
     /// Return number of processed and total tiles.
-    pub fn progress(&self) -> (usize, usize) {
-        let total = self.render_state.tile_ordering.len();
-        let processed = self
-            .render_state
-            .next_tile_index
-            .load(Ordering::Acquire)
-            .min(total);
-        (processed, total)
-    }
-
-    pub fn progress_percent(&self) -> f32 {
-        let (processed, total) = self.progress();
-        100.0 * (processed as f32) / (total as f32)
+    pub fn progress(&self) -> RenderProgressSnapshot {
+        RenderProgressSnapshot {
+            finished: self
+                .render_state
+                .next_tile_index
+                .load(Ordering::Acquire)
+                .saturating_sub(self.worker_count),
+            total: self.render_state.tile_ordering.len(),
+        }
     }
 
     pub fn is_finished(&self) -> bool {
@@ -167,6 +183,17 @@ impl<O: Object> RenderProgress<O> {
     }
 }
 
+pub struct RenderProgressSnapshot {
+    pub finished: usize,
+    pub total: usize,
+}
+
+impl RenderProgressSnapshot {
+    pub fn percent(&self) -> f32 {
+        100.0 * (self.finished as f32) / (self.total as f32)
+    }
+}
+
 struct RenderState<O: Object> {
     scene: Scene<O>,
     camera: Camera,
@@ -183,8 +210,8 @@ struct RenderState<O: Object> {
 }
 
 impl<O: Object> RenderState<O> {
-    fn get_next_tile(&self) -> Option<&ScreenBlock> {
+    fn get_next_tile(&self) -> (usize, Option<&ScreenBlock>) {
         let id = self.next_tile_index.fetch_add(1, Ordering::AcqRel);
-        self.tile_ordering.get(id)
+        (id, self.tile_ordering.get(id))
     }
 }
