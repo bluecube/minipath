@@ -1,4 +1,7 @@
-use crate::geometry::{Ray, SimdFloatType};
+use crate::{
+    geometry::{Ray, SimdFloatType},
+    util::simba::fma_dot,
+};
 
 use simba::simd::{SimdPartialOrd as _, SimdValue};
 
@@ -23,15 +26,15 @@ impl Triangle<WorldPoint8> {
         let e2 = self[2] - self[0];
 
         let ray_cross_e2 = direction.cross(&e2);
-        let det = e1.dot(&ray_cross_e2);
+        let det = fma_dot(&e1, &ray_cross_e2);
 
         let inv_det = SimdFloatType::ONE / det; // May be infinite
         let s = origin - self[0];
-        let u = inv_det * s.dot(&ray_cross_e2);
+        let u = inv_det * fma_dot(&s, &ray_cross_e2);
 
         let s_cross_e1 = s.cross(&e1);
-        let v = inv_det * direction.dot(&s_cross_e1);
-        let t = inv_det * e2.dot(&s_cross_e1);
+        let v = inv_det * fma_dot(&direction, &s_cross_e1);
+        let t = inv_det * fma_dot(&e2, &s_cross_e1);
 
         let mask = u.simd_ge(SimdFloatType::ZERO)
             & v.simd_ge(SimdFloatType::ZERO)
