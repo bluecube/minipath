@@ -115,16 +115,17 @@ fn main() -> anyhow::Result<()> {
         "Minipath GUI",
         Default::default(),
         Box::new(|cc| {
-            let camera = Camera::new(
-                WorldPoint::new(0.0, -5.0, 1.0),
-                WorldVector::new(0.0, 1.0, 0.0),
-                WorldVector::new(0.0, 0.0, 1.0),
-                ScreenSize::new(2048, 1536),
-                36e-3,
-                50e-3,
-                4.8,
-                5.0,
-            );
+            let camera = Camera::builder()
+                .center(WorldPoint::new(0.0, 2.0, 10.0))
+                .forward(WorldVector::new(0.0, 0.0, -1.0))
+                .up(WorldVector::new(0.0, 1.0, 0.0))
+                .resolution(ScreenSize::new(2048, 1536))
+                .film_width(36e-3)
+                .focal_length(50e-3)
+                .f_number(4.8)
+                .focus_distance(10.0)
+                .build();
+
             let settings = RenderSettings {
                 tile_size: 64.try_into().unwrap(),
                 sample_count: 10.try_into().unwrap(),

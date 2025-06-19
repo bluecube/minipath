@@ -1,4 +1,5 @@
 use assert2::assert;
+use bon::bon;
 use nalgebra::Unit;
 use rand_distr::Distribution as _;
 
@@ -22,9 +23,9 @@ pub struct Camera {
     lens_weight: FloatType,
 }
 
+#[bon]
 impl Camera {
-    /// Creates new camera and precomputes what needs to be precomputed.
-    /// `forward` and `up` must be nonzero and non colinear.
+    #[builder]
     pub fn new(
         center: WorldPoint,
         forward: WorldVector,
@@ -68,7 +69,9 @@ impl Camera {
             lens_weight: focal_length / focus_distance,
         }
     }
+}
 
+impl Camera {
     pub fn get_resolution(&self) -> ScreenSize {
         self.resolution
     }
@@ -101,16 +104,16 @@ mod test {
     #[test]
     fn left_right_up_down() {
         // X goes right, Y goes away, Z goes up
-        let camera = Camera::new(
-            WorldPoint::new(0.0, 0.0, 0.0),
-            WorldVector::new(0.0, 1.0, 0.0),
-            WorldVector::new(0.0, 0.0, 1.0),
-            ScreenSize::new(800, 600),
-            36e-3,
-            50e-3,
-            std::f32::INFINITY,
-            2.0,
-        );
+        let camera = Camera::builder()
+            .center(WorldPoint::new(0.0, 0.0, 0.0))
+            .forward(WorldVector::new(0.0, 1.0, 0.0))
+            .up(WorldVector::new(0.0, 0.0, 1.0))
+            .resolution(ScreenSize::new(800, 600))
+            .film_width(36e-3)
+            .focal_length(50e-3)
+            .f_number(std::f32::INFINITY)
+            .focus_distance(2.0)
+            .build();
         let mut rng = rand::rng();
 
         let ray_center = camera.sample_ray(&ScreenPoint::new(400, 300), &mut rng);
