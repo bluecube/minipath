@@ -27,7 +27,8 @@ impl UnitInterval8 {
     }
 
     pub fn decompress(&self) -> SimdFloatType {
-        WideF32x8(u16x8_to_f32x8(self.0) / u16x8_to_f32x8(u16x8::MAX))
+        const INV_U16_MAX: f32 = 1.0 / (u16::MAX as f32);
+        WideF32x8(u16x8_to_f32x8(self.0) * f32x8::splat(INV_U16_MAX))
     }
 
     pub fn is_zero(&self) -> WideBoolF32x8 {
