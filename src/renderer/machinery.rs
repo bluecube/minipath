@@ -5,6 +5,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 use image::{GenericImage, GenericImageView, RgbaImage};
@@ -27,6 +28,9 @@ pub fn render<
     started_tile_callback: F1,
     finished_tile_callback: F2,
 ) -> anyhow::Result<RenderProgress<O>> {
+    let cores = core_affinity::get_core_ids().expect("We need a CPU list!");
+    let worker_count = cores.len();
+
     let image = RgbaImage::new(camera.get_resolution().x, camera.get_resolution().y);
     let state = Arc::new(RenderState {
         scene,
@@ -38,16 +42,16 @@ pub fn render<
         tile_ordering: ScreenBlock::with_size(ScreenPoint::origin(), &camera.get_resolution())
             .tile_ordering(settings.tile_size),
         next_tile_index: AtomicUsize::new(0),
+
+        start_time: Instant::now(),
+        end: Mutex::new((0, None)),
     });
     let started_tile_callback = Arc::new(started_tile_callback);
     let finished_tile_callback = Arc::new(finished_tile_callback);
 
-    let cores = core_affinity::get_core_ids()
-        .expect("We need a CPU list!")
-        .into_iter()
-        .enumerate();
-
     let threads = cores
+        .into_iter()
+        .enumerate()
         .map(|(worker_id, core)| {
             let state = Arc::clone(&state);
             let started_tile_callback = Arc::clone(&started_tile_callback);
@@ -87,6 +91,14 @@ pub fn render<
 
                         (finished_tile_callback)(tile.clone());
                     }
+
+                    let elapsed = Instant::elapsed(&state.start_time);
+                    let mut lock = state.end.lock().unwrap();
+
+                    lock.0 += 1;
+                    if lock.0 == worker_count {
+                        lock.1 = Some(elapsed);
+                    }
                 })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -123,6 +135,17 @@ impl<O: Object> RenderProgress<O> {
         self.threads.iter().all(|handle| handle.is_finished())
     }
 
+    /// Returns elapsed time since the start of the render. Stops
+    /// incrementing once the render finishes.
+    pub fn elapsed(&self) -> Duration {
+        self.render_state
+            .end
+            .lock()
+            .unwrap()
+            .1
+            .unwrap_or_else(|| self.render_state.start_time.elapsed())
+    }
+
     /// Signal the workers to abort.
     /// Any running workers will still finish their tiles, but no new ones will be started.
     pub fn abort(&self) {
@@ -153,6 +176,10 @@ struct RenderState<O: Object> {
 
     tile_ordering: Vec<ScreenBlock>,
     next_tile_index: AtomicUsize,
+
+    start_time: Instant,
+    /// Number of workers that finished, elapsed time
+    end: Mutex<(usize, Option<Duration>)>,
 }
 
 impl<O: Object> RenderState<O> {
