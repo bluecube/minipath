@@ -10,7 +10,7 @@ use minipath::{
     Camera, RenderProgress, RenderSettings, Scene,
     geometry::{ScreenBlock, ScreenPoint, ScreenSize, WorldPoint, WorldVector},
     render,
-    scene::{Object, TriangleBvh},
+    scene::{Object, triangle_bvh::TriangleBvh},
 };
 use nalgebra::Vector2;
 

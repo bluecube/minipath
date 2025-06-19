@@ -9,6 +9,8 @@ use crate::geometry::{TexturePoint, Triangle, WorldBox, WorldVector};
 
 use index_vec::IndexVec;
 
+pub use ray_bvh_intersection::StackCache;
+
 const INNER_NODE_CHILDREN: usize = 8;
 const LEAF_NODE_PACKET_SIZE: usize = 8;
 const LEAF_NODE_MAX_TRIANGLES: usize =

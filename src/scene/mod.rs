@@ -1,13 +1,11 @@
 pub mod primitives;
-mod triangle_bvh;
-
-pub use triangle_bvh::TriangleBvh;
+pub mod triangle_bvh;
 
 use crate::geometry::{HitRecord, Ray, WorldBox};
 
 /// Renderable object
 pub trait Object {
-    fn intersect(&self, ray: &Ray) -> Option<HitRecord>;
+    fn intersect(&self, ray: &Ray, cache: &mut triangle_bvh::StackCache) -> Option<HitRecord>;
     fn get_bounding_box(&self) -> WorldBox;
 }
 

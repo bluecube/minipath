@@ -1,3 +1,4 @@
+use assert2::debug_assert;
 use nalgebra::Unit;
 use num_traits::zero;
 use simba::simd::{SimdBool as _, SimdPartialOrd as _, SimdValue};
@@ -15,16 +16,23 @@ use crate::{
     util::bit_iter,
 };
 
+#[derive(Clone, Default)]
+#[repr(transparent)]
+pub struct StackCache {
+    stack: Vec<(CompressedNodeLink, WorldBox)>,
+}
+
 impl Object for TriangleBvh {
-    fn intersect(&self, ray: &Ray) -> Option<HitRecord> {
-        let mut stack = vec![(self.root, self.bounding_box.clone())];
+    fn intersect(&self, ray: &Ray, stack: &mut StackCache) -> Option<HitRecord> {
+        debug_assert!(stack.stack.is_empty());
+        stack.stack.push((self.root, self.bounding_box.clone()));
 
         let mut best = LeafHitRecord {
             t: FloatType::MAX,
             ..LeafHitRecord::default()
         };
 
-        while let Some((link, enclosing_box)) = stack.pop() {
+        while let Some((link, enclosing_box)) = stack.stack.pop() {
             // TODO: Perf: max_t might have decreased since we added this node to the queue -- is it worth re-checking box collision again?
             // For this the queue should also hold the box's t2 to make the check quick
             match link.decode() {
@@ -34,7 +42,7 @@ impl Object for TriangleBvh {
                     for (_t1, _t2, link, bb) in node.intersect(ray, &enclosing_box, best.t) {
                         // TODO: Perf: Sort based on t1 before inserting, lower t1 should be added last
                         // (= first to be popped, because it has the best chance of decreasing nearest_t)
-                        stack.push((link, bb));
+                        stack.stack.push((link, bb));
                     }
                 }
                 super::NodeLink::Leaf { indices } => {
@@ -107,7 +115,7 @@ impl TriangleBvh {
             let triangles = triangles.decompress(&enclosing_box);
             let (mask, t, uv) = triangles.intersect(ray);
 
-            let mask = (mask & t.simd_ge(zero()) & t.simd_le(max_t)).bitmask();
+            let mask = (mask & t.simd_ge(zero()) & t.simd_le(max_t)).0.move_mask() as u64;
 
             // TODO: Perf: Maybe a non-fancy bit_iter that just goes 0..8 could be faster because of inlining
             for i in bit_iter(mask) {
@@ -145,7 +153,7 @@ impl InnerNode {
         // Since we know that there will not be any, we could use that -- verify if it is worth it
         let t1 = t1.simd_max(SimdFloatType::ZERO);
         let t2 = t2.simd_min(SimdFloatType::splat(max_t));
-        let mask = t1.simd_le(t2).bitmask();
+        let mask = t1.simd_le(t2).0.move_mask() as u64;
 
         // TODO: Perf: Maybe a non-fancy bit_iter that just goes 0..8 could be faster because of inlining
         bit_iter(mask).map(move |i| {

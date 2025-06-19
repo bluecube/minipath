@@ -5,7 +5,7 @@ use minipath::{
     Camera, RenderSettings, Scene,
     geometry::{ScreenSize, WorldPoint, WorldVector},
     render,
-    scene::TriangleBvh,
+    scene::triangle_bvh::TriangleBvh,
 };
 
 fn criterion_benchmark(c: &mut Criterion) {

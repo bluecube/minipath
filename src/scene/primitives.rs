@@ -1,6 +1,9 @@
 use nalgebra::Unit;
 
-use crate::geometry::{FloatType, HitRecord, Ray, TexturePoint, WorldBox, WorldPoint, WorldVector};
+use crate::{
+    geometry::{FloatType, HitRecord, Ray, TexturePoint, WorldBox, WorldPoint, WorldVector},
+    scene::triangle_bvh,
+};
 
 use super::Object;
 
@@ -10,7 +13,7 @@ pub struct Sphere {
 }
 
 impl Object for Sphere {
-    fn intersect(&self, ray: &Ray) -> Option<HitRecord> {
+    fn intersect(&self, ray: &Ray, _: &mut triangle_bvh::StackCache) -> Option<HitRecord> {
         let oc = ray.origin - self.center;
         let b = oc.dot(&ray.direction);
         let c = oc.dot(&oc) - self.radius * self.radius;
@@ -63,7 +66,7 @@ mod tests {
             radius: 1.0,
         };
         let ray = Ray::new([1.0, 2.0, 0.0].into(), [0.0, 0.0, 1.0].into());
-        let hit = sphere.intersect(&ray);
+        let hit = sphere.intersect(&ray, &mut Default::default());
 
         let h = hit.expect("We should have a hit!");
         assert!((h.t - 2.0).abs() < 1e-6);
@@ -76,7 +79,7 @@ mod tests {
             radius: 1.0,
         };
         let ray = Ray::new([2.0, 2.0, 0.0].into(), [0.0, 0.0, 1.0].into());
-        let hit = sphere.intersect(&ray);
+        let hit = sphere.intersect(&ray, &mut Default::default());
 
         let h = hit.expect("We should have a hit!");
         assert!((h.t - 3.0).abs() < 1e-6);
@@ -89,7 +92,7 @@ mod tests {
             radius: 1.0,
         };
         let ray = Ray::new([2.0, 2.01, 0.0].into(), [0.0, 0.0, 1.0].into());
-        let hit = sphere.intersect(&ray);
+        let hit = sphere.intersect(&ray, &mut Default::default());
         assert!(hit.is_none());
     }
 }

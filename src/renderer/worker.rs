@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use image::RgbaImage;
 use rand::{SeedableRng, rngs::SmallRng};
 
+use crate::scene::triangle_bvh;
 use crate::{
     camera::Camera,
     geometry::{ScreenBlock, ScreenPoint},
@@ -13,6 +14,7 @@ use crate::{
 
 pub struct Worker<O: Object> {
     rng: SmallRng,
+    bvh_stack_cache: triangle_bvh::StackCache,
     _phantom: PhantomData<O>,
 }
 
@@ -20,6 +22,7 @@ impl<O: Object + Sync> Worker<O> {
     pub fn new(_worker_id: usize) -> Self {
         Self {
             rng: SmallRng::from_os_rng(),
+            bvh_stack_cache: Default::default(),
             _phantom: Default::default(),
         }
     }
@@ -53,7 +56,7 @@ impl<O: Object + Sync> Worker<O> {
     ) -> Rgba {
         let ray = camera.sample_ray(&point, &mut self.rng);
 
-        if let Some(intersection) = scene.object.intersect(&ray) {
+        if let Some(intersection) = scene.object.intersect(&ray, &mut self.bvh_stack_cache) {
             let dot = ray.direction.dot(&intersection.normal).abs();
             Rgba::new(dot, dot, dot, 1.0)
         } else {
