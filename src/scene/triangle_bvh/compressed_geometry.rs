@@ -67,7 +67,15 @@ impl RelativePoint8 {
             self.y.decompress(),
             self.z.decompress(),
         );
-        enclosing_box.min + relative.component_mul(&enclosing_box.size())
+        // The following block is a FMA equivalent of this:
+        // enclosing_box.min + relative.component_mul(&enclosing_box.size())
+        WorldPoint8 {
+            coords: enclosing_box.size().zip_zip_map(
+                &relative,
+                &enclosing_box.min.coords,
+                |size, relative, min| WideF32x8(size.0.mul_add(relative.0, min.0)),
+            ),
+        }
     }
 
     pub fn is_zero(&self) -> WideBoolF32x8 {
