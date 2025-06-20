@@ -98,6 +98,15 @@ impl RelativeBox8 {
     }
 }
 
+impl Default for RelativeBox8 {
+    fn default() -> Self {
+        AABB {
+            min: Default::default(),
+            max: Default::default(),
+        }
+    }
+}
+
 pub type RelativeTriangle8 = Triangle<RelativePoint8>;
 
 impl RelativeTriangle8 {

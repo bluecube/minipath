@@ -102,11 +102,12 @@ where
 impl<T: Scalar, D: DimName> Triangle<OPoint<T, D>>
 where
     DefaultAllocator: Allocator<D>,
-    T: ClosedAddAssign + ClosedDivAssign + Zero + From<usize>,
+    T: ClosedAddAssign + ClosedDivAssign + Zero + From<u16>,
 {
     pub fn centroid(&self) -> OPoint<T, D> {
         OPoint {
-            coords: self.0.iter().map(|p| &p.coords).sum::<OVector<T, D>>() / T::from(self.0.len()),
+            coords: self.0.iter().map(|p| &p.coords).sum::<OVector<T, D>>()
+                / T::from(self.0.len() as u16),
         }
     }
 }

@@ -1,19 +1,20 @@
 use num_traits::One;
+use ordered_float::FloatCore;
 use std::{
     borrow::Borrow,
     ops::{Add, Sub},
 };
 
 use nalgebra::{
-    ClosedAddAssign, ClosedDivAssign, DefaultAllocator, DimName, OPoint, Point, Point2, Scalar,
-    allocator::Allocator,
+    ClosedAddAssign, ClosedDivAssign, DefaultAllocator, DimName, OPoint, OVector, Point, Point2,
+    Scalar, allocator::Allocator,
 };
 
 use simba::simd::SimdValue;
 
 use super::WorldPoint;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct AABB<Point> {
     pub min: Point,
     pub max: Point,
@@ -130,6 +131,25 @@ impl<Point> From<(Point, Point)> for AABB<Point> {
     }
 }
 
+impl<T, D> Default for AABB<OPoint<T, D>>
+where
+    D: DimName,
+    DefaultAllocator: Allocator<D>,
+    T: Scalar + SimdValue,
+    T::Element: num_traits::float::FloatCore,
+{
+    fn default() -> Self {
+        Self {
+            min: OPoint {
+                coords: OVector::repeat(T::splat(T::Element::infinity())),
+            },
+            max: OPoint {
+                coords: OVector::repeat(T::splat(T::Element::neg_infinity())),
+            },
+        }
+    }
+}
+
 impl<T: SimdValue + Scalar, D: DimName> SimdValue for AABB<OPoint<T, D>>
 where
     T::Element: SimdValue + Scalar,
@@ -168,7 +188,42 @@ where
     }
 }
 
+impl<T, D: DimName> AABB<OPoint<T, D>>
+where
+    DefaultAllocator: Allocator<D>,
+    T: Scalar + nalgebra::SimdPartialOrd,
+{
+    pub fn intersect(&self, other: &AABB<OPoint<T, D>>) -> AABB<OPoint<T, D>> {
+        AABB {
+            min: self.min.sup(&other.min),
+            max: self.max.inf(&other.max),
+        }
+    }
+
+    pub fn union(&self, other: &AABB<OPoint<T, D>>) -> AABB<OPoint<T, D>> {
+        AABB {
+            min: self.min.inf(&other.min),
+            max: self.max.sup(&other.max),
+        }
+    }
+}
+
 impl AABB<WorldPoint> {
+    pub fn extend_point(&mut self, p: &WorldPoint) {
+        self.min = self.min.inf(p);
+        self.max = self.max.sup(p);
+    }
+
+    pub fn extend_points<I>(&mut self, points: I)
+    where
+        I: IntoIterator,
+        I::Item: Borrow<WorldPoint>,
+    {
+        for p in points.into_iter() {
+            self.extend_point(p.borrow());
+        }
+    }
+
     pub fn from_points<I>(points: I) -> Option<AABB<WorldPoint>>
     where
         I: IntoIterator,
@@ -176,12 +231,20 @@ impl AABB<WorldPoint> {
     {
         let mut it = points.into_iter();
         let first = it.next()?.borrow().clone();
-        Some(it.fold(AABB::new(first, first), |acc, p| {
-            AABB::new(acc.min.inf(p.borrow()), acc.max.sup(p.borrow()))
-        }))
+
+        let mut b = AABB::new(first, first);
+        b.extend_points(it);
+
+        Some(b)
     }
 
     pub fn volume(&self) -> f32 {
         self.size().product()
+    }
+
+    pub fn surface_area(&self) -> f32 {
+        let size = self.size();
+
+        2.0 * (size.x * (size.y + size.z) + size.y * size.z)
     }
 }

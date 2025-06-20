@@ -1,15 +1,18 @@
-use std::{array, fs, path::Path};
+use std::{array, fs, ops::Range, path::Path};
 
 use crate::{
-    geometry::{TexturePoint, Triangle, WorldBox, WorldBox8, WorldPoint, WorldPoint8, WorldVector},
+    geometry::{
+        AABB, TexturePoint, Triangle, WorldBox, WorldBox8, WorldPoint, WorldPoint8, WorldVector,
+    },
     scene::triangle_bvh::TriangleShadingData,
     util::simba::simd_windows,
 };
 
+use arrayvec::ArrayVec;
 use index_vec::IndexVec;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
-use morton_encoding::morton_encode;
+use nalgebra::Vector3;
 use simba::simd::{SimdValue, WideF32x8};
 use thiserror::Error;
 
@@ -91,7 +94,6 @@ impl TriangleBvh {
             vertex_data: IndexVec::new(),
         };
 
-        morton_sort(&mut triangles, &vertices);
         bvh.root = bvh.build_recursive(&mut triangles, &vertices, &bounding_box);
         bvh.vertex_data = vertices
             .into_iter()
@@ -130,11 +132,8 @@ impl TriangleBvh {
         let node_index = self.inner_nodes.last_idx();
 
         let mut child_boxes = WorldBox8::default();
-        for (i, (index1, index2)) in split_indices.iter().tuple_windows().enumerate() {
-            let triangles = &mut triangles[*index1..*index2];
-            if let Some(child_box) = WorldBox::from_points(vertices_iter(triangles, vertices)) {
-                child_boxes.replace(i, child_box);
-            }
+        for (i, (_range, child_box)) in split_indices.iter().enumerate() {
+            child_boxes.replace(i, child_box.clone());
         }
         let enclosing_box = WorldBox8::splat(enclosing_box.clone());
         let compressed_child_boxes = RelativeBox8::compress_round_out(child_boxes, &enclosing_box);
@@ -145,8 +144,12 @@ impl TriangleBvh {
 
         // Insert the children
         let child_links = array::from_fn(|i| {
-            let triangles = &mut triangles[split_indices[i]..split_indices[i + 1]];
-            self.build_recursive(triangles, vertices, &decompressed_child_boxes.extract(i))
+            if let Some((range, _child_box)) = split_indices.get(i) {
+                let triangles = &mut triangles[range.clone()];
+                self.build_recursive(triangles, vertices, &decompressed_child_boxes.extract(i))
+            } else {
+                CompressedNodeLink::NULL
+            }
         });
 
         // Replace the placeholder with an actual inner node
@@ -223,37 +226,6 @@ pub struct VertexData {
     normal: WorldVector,
 }
 
-fn morton_sort(triangles: &mut [Triangle<usize>], vertices: &[VertexData]) {
-    const GRID_BITS: usize = 10;
-
-    let Some(bounds) = WorldBox::from_points(centroids_iter(triangles, vertices)) else {
-        return;
-    };
-    let min = bounds.min;
-    let scale = WorldVector::repeat((1 >> GRID_BITS) as f32).component_div(&bounds.size());
-
-    // TODO: Perf: sort_unstable? is caching helpful?
-    triangles.sort_by_cached_key(|triangle| {
-        let centroid = triangle_centroid(triangle, vertices);
-        let grid_coordinates: [u32; 3] = (centroid - min)
-            .component_mul(&scale)
-            .map(|x| x.round() as u32)
-            .into();
-
-        morton_encode(grid_coordinates)
-    });
-}
-
-fn triangle_centroid(triangle: &Triangle<usize>, vertices: &[VertexData]) -> WorldPoint {
-    WorldPoint {
-        coords: triangle
-            .iter()
-            .map(|i| vertices[*i].pos.coords)
-            .sum::<WorldVector>()
-            / (triangle.len() as f32),
-    }
-}
-
 /// Iterates over vertices of indexed triangles
 fn vertices_iter<'a>(
     triangles: &[Triangle<usize>],
@@ -265,32 +237,186 @@ fn vertices_iter<'a>(
         .map(|i| &vertices[*i].pos)
 }
 
-/// Iterates over centroids of indexed triangles
-fn centroids_iter(
-    triangles: &[Triangle<usize>],
-    vertices: &[VertexData],
-) -> impl Iterator<Item = WorldPoint> {
-    triangles
-        .iter()
-        .map(|triangle| triangle_centroid(triangle, vertices))
-}
-
-/// Reorder the triangles and return an array of indices in the triangle array, where the
-/// output bins should be split. Array is one larger than INNER_NODE_CHILDREN, first item is always 0,
-/// last item is always triangles.size().
+/// Reorders the triangles and returns index range and a bounding box for child of the node.
 fn split_triangles(
     triangles: &mut [Triangle<usize>],
-    _vertices: &[VertexData],
-    _enclosing_box: &WorldBox,
-) -> [usize; INNER_NODE_CHILDREN + 1] {
-    // const TARGET_BIN_COUNT: usize = 128;
-    // let bin_size = (enclosing_box.volume() / (TARGET_BIN_COUNT as f32)).cbrt();
-    // let bin_counts = (enclosing_box.size() / bin_size).map(|x| x.ceil() as usize);
-    // dbg!(enclosing_box);
-    // dbg!(bin_size);
-    // dbg!(bin_counts);
+    vertices: &[VertexData],
+    enclosing_box: &WorldBox,
+) -> ArrayVec<(Range<usize>, WorldBox), INNER_NODE_CHILDREN> {
+    let bin_count = (triangles.len() / 64).clamp(128, 1024);
+    let bin_grid = BinGrid::with_approximate_bin_count(enclosing_box.clone(), bin_count);
 
-    array::from_fn::<_, { INNER_NODE_CHILDREN + 1 }, _>(|i| {
-        i * triangles.len() / INNER_NODE_CHILDREN
-    })
+    let mut bins = Vec::new();
+    bins.extend((0..bin_grid.bin_count()).map(|i| SplittingBin {
+        parent: i,
+        ..Default::default()
+    }));
+
+    for triangle in triangles.iter() {
+        let triangle = triangle.map(|i| vertices[*i].pos);
+        let centroid = triangle.centroid();
+
+        let bin = &mut bins[bin_grid.bin_index(&centroid)];
+        bin.bounding_box.extend_points(triangle.iter());
+        bin.count += 1;
+    }
+
+    let mut groups: Vec<_> = bins
+        .iter()
+        .filter(|bin| bin.count > 0)
+        .map(Clone::clone)
+        .collect();
+
+    // We can't merge any more if there's only two groups
+    while groups.len() > 2 {
+        let (i1, i2, sah_improvement) = find_best_bin_merge(&groups);
+
+        if sah_improvement < 0.0 && groups.len() <= INNER_NODE_CHILDREN {
+            // If the best merge is disadvantageous and we already have
+            // small enough number of children to fit in a node, stop merging
+            break;
+        }
+
+        let g1 = &groups[i1];
+        let g2 = &groups[i2];
+        bins[g2.parent].parent = g1.parent;
+        let merged = g1.merge(g2);
+        groups[i1] = merged;
+        groups.swap_remove(i2);
+    }
+
+    triangles.sort_unstable_by_key(|triangle| {
+        let centroid = triangle.map(|i| vertices[*i].pos).centroid();
+        let mut i = bin_grid.bin_index(&centroid);
+
+        // Disjoint-set data structure
+
+        let mut root = i;
+        while bins[root].parent != root {
+            root = bins[root].parent;
+        }
+
+        while bins[i].parent != i {
+            let tmp = bins[i].parent;
+            bins[i].parent = root;
+            i = tmp;
+        }
+
+        return root;
+    });
+
+    let chunked_triangles = triangles
+        .iter()
+        .map(|triangle| triangle.map(|i| vertices[*i].pos))
+        .chunk_by(|triangle| {
+            let centroid = triangle.centroid();
+            let grid_index = bin_grid.bin_index(&centroid);
+            let key = bins[grid_index].parent;
+            key
+        });
+    chunked_triangles
+        .into_iter()
+        .map(|(_k, mut chunk)| {
+            let first_triangle = chunk.next().unwrap();
+            chunk.fold(
+                (
+                    1usize,
+                    WorldBox::from_points(first_triangle.iter()).unwrap(),
+                ),
+                |(chunk_count, mut chunk_box), triangle| {
+                    chunk_box.extend_points(triangle.iter());
+                    (chunk_count + 1, chunk_box)
+                },
+            )
+        })
+        .scan(0usize, |state, (chunk_count, chunk_box)| {
+            let chunk_offset = *state;
+            *state += chunk_count;
+            let result = (chunk_offset..(chunk_offset + chunk_count), chunk_box);
+            Some(result)
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, Default)]
+struct SplittingBin {
+    bounding_box: WorldBox,
+    count: usize,
+    /// Index of bin that represents this bin or group
+    parent: usize,
+}
+
+impl SplittingBin {
+    /// Evaluate surface area heuristic component for a single box.
+    /// The value is scaled relative to the parent box.
+    fn sah(&self) -> f32 {
+        // TODO: Perf: Try more detailed estimations here
+        self.bounding_box.surface_area() * self.count as f32
+    }
+
+    fn merge(&self, other: &SplittingBin) -> SplittingBin {
+        SplittingBin {
+            bounding_box: AABB::union(&self.bounding_box, &other.bounding_box),
+            count: self.count + other.count,
+            parent: self.parent,
+        }
+    }
+}
+
+fn find_best_bin_merge(groups: &[SplittingBin]) -> (usize, usize, f32) {
+    let mut best_i1 = 0;
+    let mut best_i2 = 0;
+    let mut best_sah_improvement = f32::NEG_INFINITY;
+    for i1 in 0..groups.len() {
+        for i2 in (i1 + 1)..groups.len() {
+            let g1 = &groups[i1];
+            let g2 = &groups[i2];
+            let merged_sah = g1.merge(g2).sah();
+            let sah_improvement = g1.sah() + g2.sah() - merged_sah;
+
+            if sah_improvement > best_sah_improvement {
+                best_i1 = i1;
+                best_i2 = i2;
+                best_sah_improvement = sah_improvement;
+            }
+        }
+    }
+
+    (best_i1, best_i2, best_sah_improvement)
+}
+
+struct BinGrid {
+    enclosing_box: WorldBox,
+    bin_size: f32,
+    bin_counts: Vector3<usize>,
+}
+
+impl BinGrid {
+    pub fn with_approximate_bin_count(enclosing_box: WorldBox, bin_count: usize) -> Self {
+        let bin_size = (enclosing_box.volume() / (bin_count as f32)).cbrt();
+        Self::with_bin_size(enclosing_box, bin_size)
+    }
+
+    pub fn with_bin_size(enclosing_box: WorldBox, bin_size: f32) -> Self {
+        let bin_counts = (enclosing_box.size() / bin_size).map(|x| x.ceil() as usize);
+
+        BinGrid {
+            enclosing_box,
+            bin_size,
+            bin_counts,
+        }
+    }
+
+    pub fn bin_count(&self) -> usize {
+        self.bin_counts.product()
+    }
+
+    pub fn bin_coords(&self, p: &WorldPoint) -> Vector3<usize> {
+        (p - self.enclosing_box.min).map(|x| (x / self.bin_size).floor() as usize)
+    }
+
+    pub fn bin_index(&self, p: &WorldPoint) -> usize {
+        let coords = self.bin_coords(p);
+        coords.x + coords.y * self.bin_counts.x + coords.z * self.bin_counts.xy().product()
+    }
 }
