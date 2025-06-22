@@ -19,30 +19,38 @@ use crate::{
 #[derive(Clone, Default)]
 #[repr(transparent)]
 pub struct StackCache {
-    stack: Vec<(CompressedNodeLink, WorldBox)>,
+    stack: Vec<(CompressedNodeLink, WorldBox, FloatType)>,
 }
 
 impl Object for TriangleBvh {
     fn intersect(&self, ray: &Ray, stack: &mut StackCache) -> Option<HitRecord> {
         debug_assert!(stack.stack.is_empty());
-        stack.stack.push((self.root, self.bounding_box.clone()));
+        stack.stack.push((
+            self.root,
+            self.bounding_box.clone(),
+            FloatType::NEG_INFINITY,
+        ));
 
         let mut best = LeafHitRecord {
             t: FloatType::MAX,
             ..LeafHitRecord::default()
         };
 
-        while let Some((link, enclosing_box)) = stack.stack.pop() {
-            // TODO: Perf: max_t might have decreased since we added this node to the queue -- is it worth re-checking box collision again?
-            // For this the queue should also hold the box's t2 to make the check quick
+        while let Some((link, enclosing_box, node_t1)) = stack.stack.pop() {
+            if node_t1 > best.t {
+                // If the node's minimum intersection distance is further away than the best
+                // hit found so far, the node can't do any good any more and we can skip it.
+                continue;
+            }
+
             match link.decode() {
                 super::NodeLink::Null => continue,
                 super::NodeLink::Inner { index } => {
                     let node = &self.inner_nodes[index];
-                    for (_t1, _t2, link, bb) in node.intersect(ray, &enclosing_box, best.t) {
+                    for (t1, _t2, link, bb) in node.intersect(ray, &enclosing_box, best.t) {
                         // TODO: Perf: Sort based on t1 before inserting, lower t1 should be added last
                         // (= first to be popped, because it has the best chance of decreasing nearest_t)
-                        stack.stack.push((link, bb));
+                        stack.stack.push((link, bb, t1));
                     }
                 }
                 super::NodeLink::Leaf { indices } => {
