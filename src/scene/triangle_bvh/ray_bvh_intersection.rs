@@ -1,7 +1,7 @@
 use assert2::debug_assert;
 use nalgebra::Unit;
 use num_traits::zero;
-use simba::simd::{SimdBool as _, SimdPartialOrd as _, SimdValue};
+use simba::simd::{SimdPartialOrd, SimdValue};
 
 use super::{
     CompressedNodeLink, InnerNode, TriangleBvh, TriangleIdx, TrianglePackIdxRange,
@@ -10,7 +10,7 @@ use super::{
 use crate::{
     geometry::{
         BarycentricCoordinates, FloatType, HitRecord, Ray, RayIntersectionExt as _, SimdFloatType,
-        WorldBox, WorldBox8, WorldVector,
+        WorldBox, WorldBoxSized, WorldBoxSized8, WorldVector,
     },
     scene::Object,
     util::bit_iter,
@@ -19,7 +19,7 @@ use crate::{
 #[derive(Clone, Default)]
 #[repr(transparent)]
 pub struct StackCache {
-    stack: Vec<(CompressedNodeLink, WorldBox, FloatType)>,
+    stack: Vec<(CompressedNodeLink, WorldBoxSized, FloatType)>,
 }
 
 impl Object for TriangleBvh {
@@ -27,7 +27,7 @@ impl Object for TriangleBvh {
         debug_assert!(stack.stack.is_empty());
         stack.stack.push((
             self.root,
-            self.bounding_box.clone(),
+            (&self.bounding_box).into(),
             FloatType::NEG_INFINITY,
         ));
 
@@ -42,6 +42,8 @@ impl Object for TriangleBvh {
                 // hit found so far, the node can't do any good any more and we can skip it.
                 continue;
             }
+
+            let enclosing_box = WorldBoxSized8::splat(enclosing_box);
 
             match link.decode() {
                 super::NodeLink::Null => continue,
@@ -105,10 +107,9 @@ impl TriangleBvh {
         &self,
         triangle_indices: TrianglePackIdxRange,
         ray: &Ray,
-        enclosing_box: &WorldBox,
+        enclosing_box: &WorldBoxSized8,
         max_t: f32,
     ) -> LeafHitRecord {
-        let enclosing_box = WorldBox8::splat(enclosing_box.clone());
         let max_t = SimdFloatType::splat(max_t);
 
         let mut best = LeafHitRecord {
@@ -120,7 +121,7 @@ impl TriangleBvh {
             .iter()
             .zip(self.triangle_geometry[triangle_indices.into_range()].iter())
         {
-            let triangles = triangles.decompress(&enclosing_box);
+            let triangles = triangles.decompress(enclosing_box);
             let (mask, t, uv) = triangles.intersect(ray);
 
             let mask = (mask & t.simd_ge(zero()) & t.simd_le(max_t)).0.move_mask() as u64;
@@ -150,17 +151,16 @@ impl InnerNode {
     fn intersect(
         &self,
         ray: &Ray,
-        enclosing_box: &WorldBox,
+        enclosing_box: &WorldBoxSized8,
         max_t: f32,
-    ) -> impl Iterator<Item = (CompressedNodeLink, WorldBox, FloatType)> {
-        let boxes = self
-            .child_bounds
-            .decompress(&enclosing_box.map_coords(|x| SimdFloatType::splat(x)));
+    ) -> impl Iterator<Item = (CompressedNodeLink, WorldBoxSized, FloatType)> {
+        let boxes = self.child_bounds.decompress(enclosing_box);
         let (t1, t2) = boxes.intersect(ray);
         // TODO: Perf: wide types support fast_min and fast_max which disregard NaNs.
         // Since we know that there will not be any, we could use that -- verify if it is worth it
         let t1 = t1.simd_max(SimdFloatType::ZERO);
         let t2 = t2.simd_min(SimdFloatType::splat(max_t));
+        let boxes: WorldBoxSized8 = (&boxes).into();
         let mask = t1.simd_le(t2).0.move_mask() as u64;
 
         // TODO: Perf: Maybe a non-fancy bit_iter that just goes 0..8 could be faster because of inlining

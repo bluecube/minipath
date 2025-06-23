@@ -5,7 +5,7 @@ mod triangle;
 
 use nalgebra::{Point2, Point3, Unit, Vector2, Vector3};
 
-pub use aabb::AABB;
+pub use aabb::{AABB, AABBSized};
 pub use ray_box_intersection::RayIntersectionExt;
 pub use triangle::{BarycentricCoordinates, Triangle};
 
@@ -23,9 +23,11 @@ pub type ScreenBlock = AABB<ScreenPoint>;
 pub type WorldPoint = Point3<FloatType>;
 pub type WorldVector = Vector3<FloatType>;
 pub type WorldBox = AABB<WorldPoint>;
+pub type WorldBoxSized = AABBSized<WorldPoint, WorldVector>;
 pub type WorldPoint8 = Point3<SimdFloatType>;
 pub type WorldVector8 = Vector3<SimdFloatType>;
 pub type WorldBox8 = AABB<WorldPoint8>;
+pub type WorldBoxSized8 = AABBSized<WorldPoint8, WorldVector8>;
 
 pub type TexturePoint = Point3<f32>;
 

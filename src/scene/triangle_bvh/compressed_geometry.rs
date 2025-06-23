@@ -9,7 +9,9 @@ use simba::simd::{WideBoolF32x8, WideF32x8};
 // This limits robustness to change -- if/when we move to std::simd
 use wide::{CmpGe as _, CmpLe as _, f32x8, i32x8, u16x8};
 
-use crate::geometry::{AABB, SimdFloatType, Triangle, WorldBox8, WorldPoint8, WorldVector8};
+use crate::geometry::{
+    AABB, SimdFloatType, Triangle, WorldBox8, WorldBoxSized8, WorldPoint8, WorldVector8,
+};
 
 /// Represents 8 closed real intervals [0, 1] compressed to u16 each.
 #[derive(Copy, Clone, Debug, Default)]
@@ -44,16 +46,16 @@ pub struct RelativePoint8 {
 }
 
 impl RelativePoint8 {
-    pub fn compress(p: &WorldPoint8, enclosing_box: &WorldBox8) -> Self {
+    pub fn compress(p: &WorldPoint8, enclosing_box: &WorldBoxSized8) -> Self {
         Self::compress_internal(p, enclosing_box, &f32x8::round)
     }
 
     fn compress_internal(
         p: &WorldPoint8,
-        enclosing_box: &WorldBox8,
+        enclosing_box: &WorldBoxSized8,
         rounding: &impl Fn(f32x8) -> f32x8,
     ) -> Self {
-        let relative = (p - enclosing_box.min).component_div(&enclosing_box.size());
+        let relative = (p - enclosing_box.min).component_div(&enclosing_box.size);
         Self {
             x: UnitInterval8::compress_internal(relative.x.0, rounding),
             y: UnitInterval8::compress_internal(relative.y.0, rounding),
@@ -61,7 +63,7 @@ impl RelativePoint8 {
         }
     }
 
-    pub fn decompress(&self, enclosing_box: &WorldBox8) -> WorldPoint8 {
+    pub fn decompress(&self, enclosing_box: &WorldBoxSized8) -> WorldPoint8 {
         let relative = WorldVector8::new(
             self.x.decompress(),
             self.y.decompress(),
@@ -70,7 +72,7 @@ impl RelativePoint8 {
         // The following block is a FMA equivalent of this:
         // enclosing_box.min + relative.component_mul(&enclosing_box.size())
         WorldPoint8 {
-            coords: enclosing_box.size().zip_zip_map(
+            coords: enclosing_box.size.zip_zip_map(
                 &relative,
                 &enclosing_box.min.coords,
                 |size, relative, min| WideF32x8(size.0.mul_add(relative.0, min.0)),
@@ -86,14 +88,14 @@ impl RelativePoint8 {
 pub type RelativeBox8 = AABB<RelativePoint8>;
 
 impl RelativeBox8 {
-    pub fn compress_round_out(b: WorldBox8, enclosing_box: &WorldBox8) -> Self {
+    pub fn compress_round_out(b: WorldBox8, enclosing_box: &WorldBoxSized8) -> Self {
         RelativeBox8 {
             min: RelativePoint8::compress_internal(&b.min, enclosing_box, &f32x8::floor),
             max: RelativePoint8::compress_internal(&b.max, enclosing_box, &f32x8::ceil),
         }
     }
 
-    pub fn decompress(&self, enclosing_box: &WorldBox8) -> WorldBox8 {
+    pub fn decompress(&self, enclosing_box: &WorldBoxSized8) -> WorldBox8 {
         self.map(|p| p.decompress(enclosing_box))
     }
 }
@@ -110,11 +112,11 @@ impl Default for RelativeBox8 {
 pub type RelativeTriangle8 = Triangle<RelativePoint8>;
 
 impl RelativeTriangle8 {
-    pub fn compress(triangle: &Triangle<WorldPoint8>, enclosing_box: &WorldBox8) -> Self {
+    pub fn compress(triangle: &Triangle<WorldPoint8>, enclosing_box: &WorldBoxSized8) -> Self {
         triangle.map(|p| RelativePoint8::compress(p, enclosing_box))
     }
 
-    pub fn decompress(&self, enclosing_box: &WorldBox8) -> Triangle<WorldPoint8> {
+    pub fn decompress(&self, enclosing_box: &WorldBoxSized8) -> Triangle<WorldPoint8> {
         self.map(|p| p.decompress(enclosing_box))
     }
 }

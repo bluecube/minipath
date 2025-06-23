@@ -2,7 +2,8 @@ use std::{array, fs, ops::Range, path::Path};
 
 use crate::{
     geometry::{
-        AABB, TexturePoint, Triangle, WorldBox, WorldBox8, WorldPoint, WorldPoint8, WorldVector,
+        AABB, TexturePoint, Triangle, WorldBox, WorldBox8, WorldBoxSized8, WorldPoint, WorldPoint8,
+        WorldVector,
     },
     scene::triangle_bvh::TriangleShadingData,
     util::simba::simd_windows,
@@ -135,7 +136,7 @@ impl TriangleBvh {
         for (i, (_range, child_box)) in split_indices.iter().enumerate() {
             child_boxes.replace(i, child_box.clone());
         }
-        let enclosing_box = WorldBox8::splat(enclosing_box.clone());
+        let enclosing_box = WorldBoxSized8::splat(enclosing_box.into());
         let compressed_child_boxes = RelativeBox8::compress_round_out(child_boxes, &enclosing_box);
         // Compression is lossy, so the bounding box will change.
         // We have to use the decompressed value for the children, same as what is used when
@@ -167,7 +168,7 @@ impl TriangleBvh {
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
     ) -> CompressedNodeLink {
-        let enclosing_box = WorldBox8::splat(enclosing_box.clone());
+        let enclosing_box = WorldBoxSized8::splat(enclosing_box.into());
 
         assert!(!triangles.is_empty());
         let packet_count = triangles.len().div_ceil(LEAF_NODE_PACKET_SIZE);

@@ -162,7 +162,7 @@ where
     type SimdBool = T::SimdBool;
 
     fn splat(val: Self::Element) -> Self {
-        val.map_coords(|x| T::splat(x))
+        val.map_coords(T::splat)
     }
 
     fn extract(&self, i: usize) -> Self::Element {
@@ -246,5 +246,79 @@ impl AABB<WorldPoint> {
         let size = self.size();
 
         2.0 * (size.x * (size.y + size.z) + size.y * size.z)
+    }
+}
+
+#[derive(Clone)]
+pub struct AABBSized<T, U> {
+    pub min: T,
+    pub size: U,
+}
+
+impl<T, U> From<&AABB<T>> for AABBSized<T, U>
+where
+    T: Clone,
+    for<'a> &'a T: Sub<&'a T, Output = U>,
+{
+    fn from(value: &AABB<T>) -> Self {
+        AABBSized {
+            min: value.min.clone(),
+            size: &value.max - &value.min,
+        }
+    }
+}
+
+impl<T, U> From<&AABBSized<T, U>> for AABB<T>
+where
+    T: Clone,
+    for<'a> &'a T: Add<&'a U, Output = T>,
+{
+    fn from(value: &AABBSized<T, U>) -> Self {
+        AABB {
+            min: value.min.clone(),
+            max: &value.min + &value.size,
+        }
+    }
+}
+
+impl<T: SimdValue + Scalar, D: DimName> SimdValue for AABBSized<OPoint<T, D>, OVector<T, D>>
+where
+    T::Element: SimdValue + Scalar,
+    DefaultAllocator: Allocator<D>,
+{
+    const LANES: usize = T::LANES;
+
+    type Element = AABBSized<OPoint<T::Element, D>, OVector<T::Element, D>>;
+
+    type SimdBool = T::SimdBool;
+
+    fn splat(val: Self::Element) -> Self {
+        AABBSized {
+            min: val.min.map(T::splat),
+            size: val.size.map(T::splat),
+        }
+    }
+
+    fn extract(&self, i: usize) -> Self::Element {
+        AABBSized {
+            min: self.min.map(|x| x.extract(i)),
+            size: self.size.map(|x| x.extract(i)),
+        }
+    }
+
+    unsafe fn extract_unchecked(&self, _i: usize) -> Self::Element {
+        unimplemented!()
+    }
+
+    fn replace(&mut self, _i: usize, _val: Self::Element) {
+        unimplemented!()
+    }
+
+    unsafe fn replace_unchecked(&mut self, _i: usize, _val: Self::Element) {
+        unimplemented!()
+    }
+
+    fn select(self, _cond: Self::SimdBool, _other: Self) -> Self {
+        unimplemented!()
     }
 }
