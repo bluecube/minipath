@@ -351,8 +351,29 @@ impl SplittingBin {
     /// Evaluate surface area heuristic component for a single box.
     /// The value is scaled relative to the parent box.
     fn sah(&self) -> f32 {
-        // TODO: Perf: Try more detailed estimations here
-        self.bounding_box.surface_area() * self.count as f32
+        // TODO: Perf: This is just a second stab at what the node traversal cost might look like.
+        // It performs better than plain area * self.count, but not by much and behaves weirdly with
+        // changes in C_LEAF_PACKET. Investigate more.
+
+        const B: f32 = INNER_NODE_CHILDREN as f32;
+
+        const C_INNER: f32 = 1.0;
+        const C_LEAF_PACKET: f32 = 0.75;
+
+        let packet_count = self.count.div_ceil(LEAF_NODE_PACKET_SIZE);
+
+        let leaf_cost = if packet_count <= CompressedNodeLink::MAX_COUNT as usize {
+            C_LEAF_PACKET * packet_count as f32
+        } else {
+            f32::INFINITY
+        };
+
+        let packet_count = packet_count as f32;
+        let depth = packet_count.log(B).floor();
+        let tree_cost =
+            C_INNER * depth + C_LEAF_PACKET * (packet_count / B.powi(depth as i32)).ceil();
+
+        return self.bounding_box.surface_area() * leaf_cost.min(tree_cost);
     }
 
     fn merge(&self, other: &SplittingBin) -> SplittingBin {
