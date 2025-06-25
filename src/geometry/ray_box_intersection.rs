@@ -17,7 +17,7 @@ impl RayIntersectionExt for WorldBox8 {
     type DistanceType = SimdFloatType;
 
     /// Calculates ray intersection with the box pack.
-    /// Returns minimum and maximum distance along the ray, ray intersects is min <= max.
+    /// Returns minimum and maximum distance along the ray, ray intersects if min <= max.
     fn intersect(&self, ray: &Ray) -> (SimdFloatType, SimdFloatType) {
         let ray_origin = ray.origin.map(|x| SimdFloatType::splat(x));
         let ray_inv_direction = ray.inv_direction.map(|x| SimdFloatType::splat(x));
