@@ -249,7 +249,7 @@ impl AABB<WorldPoint> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct AABBSized<T, U> {
     pub min: T,
     pub size: U,
