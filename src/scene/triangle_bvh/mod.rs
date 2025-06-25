@@ -78,7 +78,7 @@ impl CompressedNodeLink {
     fn new_leaf(index: TrianglePackIdx, count: u32) -> Self {
         assert!(count >= Self::MIN_COUNT);
         assert!(count <= Self::MAX_COUNT);
-        Self(index.raw() << Self::COUNT_BITS | (count as u32))
+        Self(index.raw() << Self::COUNT_BITS | count)
     }
 
     /// Create a new inner node link, panics if size is out of range
@@ -151,7 +151,7 @@ index_vec::define_index_type! {
 }
 
 impl TrianglePackIdx {
-    fn to_triangle_idx(&self, lane: usize) -> TriangleIdx {
+    fn to_triangle_idx(self, lane: usize) -> TriangleIdx {
         ((self.raw() as usize) * LEAF_NODE_PACKET_SIZE + lane).into()
     }
 }
@@ -175,9 +175,7 @@ impl TrianglePackIdxRange {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = TrianglePackIdx> {
-        (u32::from(self.first)..u32::from(self.last))
-            .into_iter()
-            .map(TrianglePackIdx::from)
+        (u32::from(self.first)..u32::from(self.last)).map(TrianglePackIdx::from)
     }
 }
 

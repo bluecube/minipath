@@ -3,7 +3,7 @@ use simba::simd::{SimdBool, SimdValue, WideBoolF32x8, WideF32x8};
 use crate::geometry::{SimdFloatType, WorldVector8};
 
 pub trait SimbaWorkarounds: SimdValue {
-    fn is_nan(self) -> Self::SimdBool;
+    fn is_nan(&self) -> Self::SimdBool;
 
     fn infinity() -> Self;
     fn neg_infinity() -> Self;
@@ -11,7 +11,7 @@ pub trait SimbaWorkarounds: SimdValue {
 
 impl SimbaWorkarounds for WideF32x8 {
     #[inline(always)]
-    fn is_nan(self) -> Self::SimdBool {
+    fn is_nan(&self) -> Self::SimdBool {
         WideBoolF32x8(self.0.is_nan())
     }
 

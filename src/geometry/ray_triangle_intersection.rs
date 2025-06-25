@@ -19,8 +19,8 @@ impl Triangle<WorldPoint8> {
         SimdFloatType,
         BarycentricCoordinates<SimdFloatType>,
     ) {
-        let origin = ray.origin.map(|x| SimdFloatType::splat(x));
-        let direction = ray.direction.map(|x| SimdFloatType::splat(x));
+        let origin = ray.origin.map(SimdFloatType::splat);
+        let direction = ray.direction.map(SimdFloatType::splat);
 
         let e1 = self[1] - self[0];
         let e2 = self[2] - self[0];

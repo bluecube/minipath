@@ -19,8 +19,8 @@ impl RayIntersectionExt for WorldBox8 {
     /// Calculates ray intersection with the box pack.
     /// Returns minimum and maximum distance along the ray, ray intersects if min <= max.
     fn intersect(&self, ray: &Ray) -> (SimdFloatType, SimdFloatType) {
-        let ray_origin = ray.origin.map(|x| SimdFloatType::splat(x));
-        let ray_inv_direction = ray.inv_direction.map(|x| SimdFloatType::splat(x));
+        let ray_origin = ray.origin.map(SimdFloatType::splat);
+        let ray_inv_direction = ray.inv_direction.map(SimdFloatType::splat);
 
         // Componentwise distances along the ray to the box's min and max corners
         // TODO: Perf: Try storing pre-multiplied ray origin in the ray, use FMA (mul_add)
@@ -34,8 +34,8 @@ impl RayIntersectionExt for WorldBox8 {
             .map(|x| SimdFloatType::infinity().select(x.is_nan(), x));
 
         // Correctly ordered (min_t <= max_t)
-        let componentwise_min_t = to_box_min.zip_map(&to_box_max, |a, b| fast_min(a, b));
-        let componentwise_max_t = to_box_min.zip_map(&to_box_max, |a, b| fast_max(a, b));
+        let componentwise_min_t = to_box_min.zip_map(&to_box_max, fast_min);
+        let componentwise_max_t = to_box_min.zip_map(&to_box_max, fast_max);
 
         let min_t = fast_max(
             componentwise_min_t.x,

@@ -78,11 +78,11 @@ impl Object for TriangleBvh {
             } = self.triangle_shading_data[best.triangle_index];
             let vertex_shading_data = vertex_indices.map(|i| &self.vertex_data[*i]);
 
-            let tex = vertex_shading_data.map(|d| (*d).texture_coords);
+            let tex = vertex_shading_data.map(|d| d.texture_coords);
             let normal = Unit::new_normalize(if flat_shading {
                 best.geometric_normal
             } else {
-                let normals = vertex_shading_data.map(|d| (*d).normal);
+                let normals = vertex_shading_data.map(|d| d.normal);
                 best.uv.interpolate_triangle(&normals)
             });
             let texture_coords = best

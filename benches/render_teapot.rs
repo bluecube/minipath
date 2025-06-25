@@ -29,7 +29,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("render_teapot", |b| {
         b.iter_batched(
-            || (camera.clone(), settings.clone(), scene.clone()),
+            || (camera, settings, scene.clone()),
             |(camera, settings, scene)| {
                 let mut render_progress =
                     render(scene, camera, settings, |_| {}, |_, _| {}).unwrap();

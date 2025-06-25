@@ -196,11 +196,9 @@ fn background_grid(p: ScreenPoint, gray: bool) -> Color32 {
 
     if dark {
         Color32::from_rgb(50, 50, 50)
+    } else if gray {
+        Color32::from_rgb(93, 93, 93)
     } else {
-        if gray {
-            Color32::from_rgb(93, 93, 93)
-        } else {
-            Color32::from_rgb(70, 90, 120)
-        }
+        Color32::from_rgb(70, 90, 120)
     }
 }

@@ -8,7 +8,7 @@ use crate::geometry::*;
 
 impl ScreenBlock {
     pub fn is_empty(&self) -> bool {
-        !(self.min < self.max)
+        !self.min.lt(&self.max)
     }
 
     pub fn area(&self) -> u32 {
@@ -198,12 +198,12 @@ mod test {
 
     /// Check that all pixels in the block are covered by a pixel iterator
     fn check_pixel_iterator_covers_block<T: Iterator<Item = ScreenPoint>>(
-        mut pixel_iterator: T,
+        pixel_iterator: T,
         block: ScreenBlock,
     ) {
         let area = block.area();
         let mut vec = vec![false; area as usize];
-        while let Some(p) = pixel_iterator.next() {
+        for p in pixel_iterator {
             assert!(block.contains(&p));
             let index = (p.x - block.min.x) + (p.y - block.min.y) * block.width();
             assert!(!vec[index as usize]);

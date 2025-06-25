@@ -15,10 +15,11 @@ impl<Point> Triangle<Point> {
         Triangle([a, b, c])
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Point> {
+    pub fn iter(&self) -> impl Iterator<Item = &Point> {
         self.0.iter()
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         3
     }

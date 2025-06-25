@@ -230,7 +230,7 @@ impl AABB<WorldPoint> {
         I::Item: Borrow<WorldPoint>,
     {
         let mut it = points.into_iter();
-        let first = it.next()?.borrow().clone();
+        let first = *it.next()?.borrow();
 
         let mut b = AABB::new(first, first);
         b.extend_points(it);

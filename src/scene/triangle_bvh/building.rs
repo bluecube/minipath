@@ -188,7 +188,7 @@ impl TriangleBvh {
             simd_windows(
                 triangles
                     .iter()
-                    .map(|t: &Triangle<usize>| t.map(|i| vertices[*i].pos.clone())),
+                    .map(|t: &Triangle<usize>| t.map(|i| vertices[*i].pos)),
             )
             .map(|(t, mask): (Triangle<WorldPoint8>, SimdMaskType)| {
                 RelativeTriangle8::compress(&t, &enclosing_box, &mask)
@@ -202,7 +202,7 @@ impl TriangleBvh {
                 material: 0,
             }));
         self.triangle_shading_data
-            .extend((0..padding).into_iter().map(|_| Default::default()));
+            .extend((0..padding).map(|_| Default::default()));
 
         link
     }
@@ -300,7 +300,7 @@ fn split_triangles(
             i = tmp;
         }
 
-        return root;
+        root
     });
 
     let chunked_triangles = triangles
@@ -309,8 +309,7 @@ fn split_triangles(
         .chunk_by(|triangle| {
             let centroid = triangle.centroid();
             let grid_index = bin_grid.bin_index(&centroid);
-            let key = bins[grid_index].parent;
-            key
+            bins[grid_index].parent
         });
     chunked_triangles
         .into_iter()
@@ -370,7 +369,7 @@ impl SplittingBin {
         let tree_cost =
             C_INNER * depth + C_LEAF_PACKET * (packet_count / B.powi(depth as i32)).ceil();
 
-        return self.bounding_box.surface_area() * leaf_cost.min(tree_cost);
+        self.bounding_box.surface_area() * leaf_cost.min(tree_cost)
     }
 
     fn merge(&self, other: &SplittingBin) -> SplittingBin {

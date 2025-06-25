@@ -51,10 +51,10 @@ impl<O: Object + Sync> Worker<O> {
         &mut self,
         scene: &Scene<O>,
         camera: &Camera,
-        settings: &RenderSettings,
+        _settings: &RenderSettings,
         point: &ScreenPoint,
     ) -> Rgba {
-        let ray = camera.sample_ray(&point, &mut self.rng);
+        let ray = camera.sample_ray(point, &mut self.rng);
 
         if let Some(intersection) = scene.object.intersect(&ray, &mut self.bvh_stack_cache) {
             let dot = ray.direction.dot(&intersection.normal).abs();
@@ -68,9 +68,9 @@ impl<O: Object + Sync> Worker<O> {
 /// Maps a 0-1 f32 rgba pixel to pixel type compatible with module image.
 pub fn color_to_image(color: Rgba) -> image::Rgba<u8> {
     image::Rgba([
-        (color.r * 255.0).round().max(0.0).min(255.0) as u8,
-        (color.g * 255.0).round().max(0.0).min(255.0) as u8,
-        (color.b * 255.0).round().max(0.0).min(255.0) as u8,
-        (color.a * 255.0).round().max(0.0).min(255.0) as u8,
+        (color.r * 255.0).round().clamp(0.0, 255.0) as u8,
+        (color.g * 255.0).round().clamp(0.0, 255.0) as u8,
+        (color.b * 255.0).round().clamp(0.0, 255.0) as u8,
+        (color.a * 255.0).round().clamp(0.0, 255.0) as u8,
     ])
 }

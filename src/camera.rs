@@ -91,8 +91,7 @@ impl Camera {
 
         let direction = lens_vector * self.lens_weight - film_point_offset;
 
-        let ray = Ray::new(self.center + lens_vector, direction);
-        ray
+        Ray::new(self.center + lens_vector, direction)
     }
 }
 
@@ -111,7 +110,7 @@ mod test {
             .resolution(ScreenSize::new(800, 600))
             .film_width(36e-3)
             .focal_length(50e-3)
-            .f_number(std::f32::INFINITY)
+            .f_number(f32::INFINITY)
             .focus_distance(2.0)
             .build();
         let mut rng = rand::rng();
