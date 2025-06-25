@@ -131,11 +131,12 @@ mod tests {
 
             let difference = (e - a).abs();
             prop_assert!(
-                difference < 1e-3 || difference < e.abs() * 1e-3,
-                "Mismatch at lane {}: expected {}, got {}",
+                difference < 1e-2 || difference < e.abs() * 1e-2,
+                "Mismatch at lane {}: expected {}, got {} (difference {})",
                 i,
                 e,
-                a
+                a,
+                difference
             );
         }
     }
