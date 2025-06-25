@@ -50,6 +50,7 @@ eframe = "0.31.1"
 
 # CLI only:
 indicatif = "0.17.11"
+bytemuck = "1.23.1"
 
 
 [dev-dependencies]

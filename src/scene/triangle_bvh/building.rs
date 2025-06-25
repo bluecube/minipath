@@ -1,4 +1,4 @@
-use std::{array, fs, ops::Range, path::Path};
+use std::{fs, ops::Range, path::Path};
 
 use crate::{
     geometry::{
@@ -12,14 +12,14 @@ use crate::{
 use arrayvec::ArrayVec;
 use index_vec::IndexVec;
 use indexmap::IndexMap;
-use itertools::Itertools as _;
+use itertools::Itertools;
 use nalgebra::Vector3;
 use simba::simd::SimdValue as _;
 use thiserror::Error;
 
 use super::{
-    CompressedNodeLink, INNER_NODE_CHILDREN, InnerNode, LEAF_NODE_MAX_TRIANGLES,
-    LEAF_NODE_PACKET_SIZE, TriangleBvh,
+    CompressedNodeLink8, INNER_NODE_CHILDREN, InnerNode, LEAF_NODE_MAX_TRIANGLES,
+    LEAF_NODE_PACKET_SIZE, NodeLink, TriangleBvh,
     compressed_geometry::{RelativeBox8, RelativeTriangle8},
 };
 
@@ -87,7 +87,7 @@ impl TriangleBvh {
 
         let mut bvh = TriangleBvh {
             bounding_box: bounding_box.clone(),
-            root: CompressedNodeLink::default(),
+            root: NodeLink::default(),
 
             inner_nodes: IndexVec::new(),
             triangle_geometry: IndexVec::new(),
@@ -112,7 +112,7 @@ impl TriangleBvh {
         triangles: &mut [Triangle<usize>],
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
-    ) -> CompressedNodeLink {
+    ) -> NodeLink {
         if triangles.len() <= LEAF_NODE_MAX_TRIANGLES {
             self.build_leaf(triangles, vertices, enclosing_box)
         } else {
@@ -125,7 +125,7 @@ impl TriangleBvh {
         triangles: &mut [Triangle<usize>],
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
-    ) -> CompressedNodeLink {
+    ) -> NodeLink {
         let split_indices = split_triangles(triangles, vertices, enclosing_box);
 
         // Create placeholder node that will be overwriten later
@@ -150,14 +150,14 @@ impl TriangleBvh {
         let decompressed_child_boxes = compressed_child_boxes.decompress(&enclosing_box);
 
         // Insert the children
-        let child_links = array::from_fn(|i| {
-            if let Some((range, _child_box)) = split_indices.get(i) {
-                let triangles = &mut triangles[range.clone()];
-                self.build_recursive(triangles, vertices, &decompressed_child_boxes.extract(i))
-            } else {
-                CompressedNodeLink::NULL
-            }
-        });
+        let mut child_links = CompressedNodeLink8::default();
+        for (i, (range, _child_box)) in split_indices.iter().enumerate() {
+            let triangles = &mut triangles[range.clone()];
+            let link =
+                self.build_recursive(triangles, vertices, &decompressed_child_boxes.extract(i));
+
+            child_links.replace(i, link);
+        }
 
         // Replace the placeholder with an actual inner node
         self.inner_nodes[node_index] = InnerNode {
@@ -165,7 +165,7 @@ impl TriangleBvh {
             child_links,
         };
 
-        CompressedNodeLink::new_inner(node_index)
+        NodeLink::new_inner(node_index)
     }
 
     fn build_leaf(
@@ -173,7 +173,7 @@ impl TriangleBvh {
         triangles: &[Triangle<usize>],
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
-    ) -> CompressedNodeLink {
+    ) -> NodeLink {
         let enclosing_box = WorldBoxSized8::splat(enclosing_box.into());
 
         assert!(!triangles.is_empty());
@@ -181,8 +181,7 @@ impl TriangleBvh {
         let padded_triangle_count = packet_count * LEAF_NODE_PACKET_SIZE;
         let padding = padded_triangle_count - triangles.len();
 
-        let link =
-            CompressedNodeLink::new_leaf(self.triangle_geometry.next_idx(), packet_count as u32);
+        let link = NodeLink::new_leaf(self.triangle_geometry.next_idx(), packet_count as u32);
 
         self.triangle_geometry.extend(
             simd_windows(
@@ -359,7 +358,7 @@ impl SplittingBin {
 
         let packet_count = self.count.div_ceil(LEAF_NODE_PACKET_SIZE);
 
-        let leaf_cost = if packet_count <= CompressedNodeLink::MAX_COUNT as usize {
+        let leaf_cost = if packet_count <= NodeLink::MAX_COUNT as usize {
             C_LEAF_PACKET * packet_count as f32
         } else {
             f32::INFINITY

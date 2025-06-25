@@ -1,6 +1,6 @@
 use crate::util::{Stats, simba::simd_element_iter};
 
-use super::{CompressedNodeLink, TriangleBvh};
+use super::{NodeLink, TriangleBvh};
 
 impl TriangleBvh {
     pub fn print_tree(&self) {
@@ -9,7 +9,7 @@ impl TriangleBvh {
     }
 
     pub fn print_statistics(&self) {
-        let (depth, inner, leaf) = self.statistics_recursive(self.root);
+        let (depth, inner, leaf) = self.statistics_recursive(&self.root);
         println!("Triangle count: {}", self.triangle_shading_data.len());
         println!("Vertex count: {}", self.vertex_data.len());
         println!("Leaf depth: {}", depth);
@@ -18,11 +18,11 @@ impl TriangleBvh {
     }
 
     /// Returns (depth stats, inner node fill stats, leaf fill stats)
-    fn statistics_recursive(&self, node: CompressedNodeLink) -> (Stats, Stats, Stats) {
-        match node.decode() {
+    fn statistics_recursive(&self, node: &NodeLink) -> (Stats, Stats, Stats) {
+        match node {
             super::NodeLink::Null => (Stats::default(), Stats::default(), Stats::default()),
             super::NodeLink::Inner { index } => {
-                let node = &self.inner_nodes[index];
+                let node = &self.inner_nodes[*index];
 
                 let mut depth_stats = Stats::default();
                 let mut inner_stats = Stats::default();
@@ -30,13 +30,14 @@ impl TriangleBvh {
 
                 let mut child_count = 0;
 
-                for child in node.child_links.iter() {
-                    if child.is_null() {
+                for i in 0..super::INNER_NODE_CHILDREN {
+                    let child = node.child_links.extract(i);
+                    if child == NodeLink::Null {
                         continue;
                     }
 
                     let (child_depth_stats, child_inner_stats, child_leaf_stats) =
-                        self.statistics_recursive(*child);
+                        self.statistics_recursive(&child);
 
                     depth_stats = depth_stats.merge(&child_depth_stats);
                     inner_stats = inner_stats.merge(&child_inner_stats);

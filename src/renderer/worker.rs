@@ -65,6 +65,12 @@ impl<O: Object + Sync> Worker<O> {
     }
 }
 
+// impl<O: Object> Drop for Worker<O> {
+//     fn drop(&mut self) {
+//         self.bvh_stack_cache.print_stats();
+//     }
+// }
+
 /// Maps a 0-1 f32 rgba pixel to pixel type compatible with module image.
 pub fn color_to_image(color: Rgba) -> image::Rgba<u8> {
     image::Rgba([

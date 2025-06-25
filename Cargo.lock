@@ -2278,6 +2278,7 @@ dependencies = [
  "arrayvec",
  "assert2",
  "bon",
+ "bytemuck",
  "core_affinity",
  "criterion",
  "eframe",
