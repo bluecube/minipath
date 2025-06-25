@@ -13,7 +13,10 @@ use crate::{
         WorldBox, WorldBoxSized, WorldBoxSized8, WorldVector,
     },
     scene::Object,
-    util::bit_iter,
+    util::{
+        bit_iter,
+        simba::{fast_max, fast_min},
+    },
 };
 
 #[derive(Clone, Default)]
@@ -156,10 +159,8 @@ impl InnerNode {
     ) -> impl Iterator<Item = (CompressedNodeLink, WorldBoxSized, FloatType)> {
         let boxes = self.child_bounds.decompress(enclosing_box);
         let (t1, t2) = boxes.intersect(ray);
-        // TODO: Perf: wide types support fast_min and fast_max which disregard NaNs.
-        // Since we know that there will not be any, we could use that -- verify if it is worth it
-        let t1 = t1.simd_max(SimdFloatType::ZERO);
-        let t2 = t2.simd_min(SimdFloatType::splat(max_t));
+        let t1 = fast_max(t1, SimdFloatType::ZERO);
+        let t2 = fast_min(t2, SimdFloatType::splat(max_t));
         let boxes: WorldBoxSized8 = (&boxes).into();
         let mask = t1.simd_le(t2).0.move_mask() as u64;
 

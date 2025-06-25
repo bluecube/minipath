@@ -24,7 +24,7 @@ impl UnitInterval8 {
         debug_assert!(v.cmp_le(f32x8::splat(1.0 + 1e-6)).all(), "{v}");
         let max = u16x8_to_f32x8(u16x8::MAX);
         Self(i32x8_to_u16x8(
-            rounding(v * max).min(max).max(f32x8::ZERO).fast_trunc_int(),
+            rounding(v * max).fast_min(max).fast_max(f32x8::ZERO).fast_trunc_int(),
         ))
     }
 

@@ -2,7 +2,7 @@ use simba::simd::SimdValue;
 
 use crate::{
     geometry::{Ray, WorldBox8},
-    util::simba::SimbaWorkarounds as _,
+    util::simba::{SimbaWorkarounds as _, fast_max, fast_min},
 };
 
 use super::SimdFloatType;
@@ -34,20 +34,17 @@ impl RayIntersectionExt for WorldBox8 {
             .map(|x| SimdFloatType::infinity().select(x.is_nan(), x));
 
         // Correctly ordered (min_t <= max_t)
-        // TODO: Perf: wide types support fast_min and fast_max which disregard NaNs.
-        // Since we know that there will not be any, we could use that -- verify if it is worth it
-        // (also few lines below)
-        let componentwise_min_t = to_box_min.zip_map(&to_box_max, |a, b| a.simd_min(b));
-        let componentwise_max_t = to_box_min.zip_map(&to_box_max, |a, b| a.simd_max(b));
+        let componentwise_min_t = to_box_min.zip_map(&to_box_max, |a, b| fast_min(a, b));
+        let componentwise_max_t = to_box_min.zip_map(&to_box_max, |a, b| fast_max(a, b));
 
-        let min_t = componentwise_min_t
-            .x
-            .simd_max(componentwise_min_t.y)
-            .simd_max(componentwise_min_t.z);
-        let max_t = componentwise_max_t
-            .x
-            .simd_min(componentwise_max_t.y)
-            .simd_min(componentwise_max_t.z);
+        let min_t = fast_max(
+            componentwise_min_t.x,
+            fast_max(componentwise_min_t.y, componentwise_min_t.z),
+        );
+        let max_t = fast_min(
+            componentwise_max_t.x,
+            fast_min(componentwise_max_t.y, componentwise_max_t.z),
+        );
 
         (min_t, max_t)
     }

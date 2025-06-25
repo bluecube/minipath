@@ -66,6 +66,14 @@ pub fn fma_cross(a: &WorldVector8, b: &WorldVector8) -> WorldVector8 {
     WorldVector8::new(WideF32x8(x), WideF32x8(y), WideF32x8(z))
 }
 
+pub fn fast_max(a: WideF32x8, b: WideF32x8) -> WideF32x8 {
+    WideF32x8(a.0.fast_max(b.0))
+}
+
+pub fn fast_min(a: WideF32x8, b: WideF32x8) -> WideF32x8 {
+    WideF32x8(a.0.fast_min(b.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
