@@ -4,13 +4,14 @@
 
 use assert2::debug_assert;
 
-use simba::simd::{WideBoolF32x8, WideF32x8};
+use simba::simd::{SimdBool as _, SimdPartialOrd as _, WideBoolF32x8, WideF32x8};
 // This module uses wide directly, as simba doesn't support integer vectors
 // This limits robustness to change -- if/when we move to std::simd
 use wide::{CmpGe as _, CmpLe as _, f32x8, i32x8, u16x8};
 
 use crate::geometry::{
-    AABB, SimdFloatType, Triangle, WorldBox8, WorldBoxSized8, WorldPoint8, WorldVector8,
+    AABB, SimdFloatType, SimdMaskType, Triangle, WorldBox8, WorldBoxSized8, WorldPoint8,
+    WorldVector8,
 };
 
 /// Represents 8 closed real intervals [0, 1] compressed to u16 each.
@@ -19,12 +20,28 @@ use crate::geometry::{
 struct UnitInterval8(u16x8);
 
 impl UnitInterval8 {
-    fn compress_internal(v: f32x8, rounding: &impl Fn(f32x8) -> f32x8) -> Self {
-        debug_assert!(v.cmp_ge(f32x8::splat(-1e-6)).all(), "{v}");
-        debug_assert!(v.cmp_le(f32x8::splat(1.0 + 1e-6)).all(), "{v}");
+    /// Compresses the interval.
+    /// Positions where mask is false are turned to zero.
+    fn compress_internal(
+        v: f32x8,
+        rounding: &impl Fn(f32x8) -> f32x8,
+        mask: &SimdMaskType,
+    ) -> Self {
+        debug_assert!(
+            (v.cmp_ge(f32x8::splat(-1e-6)) | !mask.0).all(),
+            "v: {v}, mask: {mask:?}"
+        );
+        debug_assert!(
+            (v.cmp_le(f32x8::splat(1.0 + 1e-6)) | !mask.0).all(),
+            "v: {v}, mask: {mask:?}"
+        );
         let max = u16x8_to_f32x8(u16x8::MAX);
         Self(i32x8_to_u16x8(
-            rounding(v * max).fast_min(max).fast_max(f32x8::ZERO).fast_trunc_int(),
+            mask.0
+                .blend(rounding(v * max), f32x8::ZERO)
+                .fast_min(max)
+                .fast_max(f32x8::ZERO)
+                .fast_trunc_int(),
         ))
     }
 
@@ -46,20 +63,32 @@ pub struct RelativePoint8 {
 }
 
 impl RelativePoint8 {
-    pub fn compress(p: &WorldPoint8, enclosing_box: &WorldBoxSized8) -> Self {
-        Self::compress_internal(p, enclosing_box, &f32x8::round)
+    /// Compresses the point relative to enclosing box rounding to nearest.
+    /// Positions where mask is true are turned to zero (= minimum of the enclosing box).
+    pub fn compress(p: &WorldPoint8, enclosing_box: &WorldBoxSized8, mask: &SimdMaskType) -> Self {
+        Self::compress_internal(p, enclosing_box, &f32x8::round, mask)
     }
 
+    /// Compresses the point relative to enclosing box with given rounding.
+    /// Positions where mask is false are turned to zero (= minimum of the enclosing box).
     fn compress_internal(
         p: &WorldPoint8,
         enclosing_box: &WorldBoxSized8,
         rounding: &impl Fn(f32x8) -> f32x8,
+        mask: &SimdMaskType,
     ) -> Self {
+        debug_assert!(
+            enclosing_box
+                .size
+                .fold(true, |acc, x| acc & x.simd_gt(WideF32x8::ZERO).all()),
+            "{:?}",
+            enclosing_box.size
+        );
         let relative = (p - enclosing_box.min).component_div(&enclosing_box.size);
         Self {
-            x: UnitInterval8::compress_internal(relative.x.0, rounding),
-            y: UnitInterval8::compress_internal(relative.y.0, rounding),
-            z: UnitInterval8::compress_internal(relative.z.0, rounding),
+            x: UnitInterval8::compress_internal(relative.x.0, rounding, mask),
+            y: UnitInterval8::compress_internal(relative.y.0, rounding, mask),
+            z: UnitInterval8::compress_internal(relative.z.0, rounding, mask),
         }
     }
 
@@ -88,10 +117,16 @@ impl RelativePoint8 {
 pub type RelativeBox8 = AABB<RelativePoint8>;
 
 impl RelativeBox8 {
-    pub fn compress_round_out(b: WorldBox8, enclosing_box: &WorldBoxSized8) -> Self {
+    /// Compresses the box relative to enclosing box, rounding to nearest.
+    /// Positions where mask is false are turned to zero (= minimum of the enclosing box).
+    pub fn compress_round_out(
+        b: WorldBox8,
+        enclosing_box: &WorldBoxSized8,
+        mask: &SimdMaskType,
+    ) -> Self {
         RelativeBox8 {
-            min: RelativePoint8::compress_internal(&b.min, enclosing_box, &f32x8::floor),
-            max: RelativePoint8::compress_internal(&b.max, enclosing_box, &f32x8::ceil),
+            min: RelativePoint8::compress_internal(&b.min, enclosing_box, &f32x8::floor, mask),
+            max: RelativePoint8::compress_internal(&b.max, enclosing_box, &f32x8::ceil, mask),
         }
     }
 
@@ -112,8 +147,14 @@ impl Default for RelativeBox8 {
 pub type RelativeTriangle8 = Triangle<RelativePoint8>;
 
 impl RelativeTriangle8 {
-    pub fn compress(triangle: &Triangle<WorldPoint8>, enclosing_box: &WorldBoxSized8) -> Self {
-        triangle.map(|p| RelativePoint8::compress(p, enclosing_box))
+    /// Compresses the triangle relative to enclosing box, rounding to nearest.
+    /// Positions where mask is false are turned to zero (= minimum of the enclosing box).
+    pub fn compress(
+        triangle: &Triangle<WorldPoint8>,
+        enclosing_box: &WorldBoxSized8,
+        mask: &SimdMaskType,
+    ) -> Self {
+        triangle.map(|p| RelativePoint8::compress(p, enclosing_box, mask))
     }
 
     pub fn decompress(&self, enclosing_box: &WorldBoxSized8) -> Triangle<WorldPoint8> {
@@ -149,7 +190,8 @@ mod test {
     #[proptest]
     fn compressed_unit_interval_round_trip_round(#[strategy(0.0f32..=1.0f32)] v: f32) {
         let v_simd = SimdFloatType::splat(v);
-        let i = UnitInterval8::compress_internal(v_simd.0, &f32x8::round);
+        let i =
+            UnitInterval8::compress_internal(v_simd.0, &f32x8::round, &SimdMaskType::splat(true));
         let decompressed = i.decompress();
         let max_error = 0.5 / (u16::MAX as f32);
 

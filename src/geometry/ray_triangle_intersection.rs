@@ -5,7 +5,7 @@ use crate::{
 
 use simba::simd::{SimdPartialOrd as _, SimdValue};
 
-use super::{BarycentricCoordinates, Triangle, WorldPoint8};
+use super::{BarycentricCoordinates, SimdMaskType, Triangle, WorldPoint8};
 
 impl Triangle<WorldPoint8> {
     /// Calculates ray intersection with the (two sided) triangle pack.
@@ -15,7 +15,7 @@ impl Triangle<WorldPoint8> {
         &self,
         ray: &Ray,
     ) -> (
-        <SimdFloatType as SimdValue>::SimdBool,
+        SimdMaskType,
         SimdFloatType,
         BarycentricCoordinates<SimdFloatType>,
     ) {

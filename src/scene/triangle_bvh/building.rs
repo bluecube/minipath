@@ -2,8 +2,8 @@ use std::{array, fs, ops::Range, path::Path};
 
 use crate::{
     geometry::{
-        AABB, TexturePoint, Triangle, WorldBox, WorldBox8, WorldBoxSized8, WorldPoint, WorldPoint8,
-        WorldVector,
+        AABB, SimdMaskType, TexturePoint, Triangle, WorldBox, WorldBoxSized8, WorldPoint,
+        WorldPoint8, WorldVector,
     },
     scene::triangle_bvh::TriangleShadingData,
     util::simba::simd_windows,
@@ -14,7 +14,7 @@ use index_vec::IndexVec;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
 use nalgebra::Vector3;
-use simba::simd::{SimdValue, WideF32x8};
+use simba::simd::SimdValue as _;
 use thiserror::Error;
 
 use super::{
@@ -132,12 +132,18 @@ impl TriangleBvh {
         self.inner_nodes.push(InnerNode::default());
         let node_index = self.inner_nodes.last_idx();
 
-        let mut child_boxes = WorldBox8::default();
-        for (i, (_range, child_box)) in split_indices.iter().enumerate() {
-            child_boxes.replace(i, child_box.clone());
-        }
         let enclosing_box = WorldBoxSized8::splat(enclosing_box.into());
-        let compressed_child_boxes = RelativeBox8::compress_round_out(child_boxes, &enclosing_box);
+        let compressed_child_boxes = simd_windows(
+            split_indices
+                .iter()
+                .map(|(_range, child_box)| child_box.clone()),
+        )
+        .map(|(child_boxes, mask)| {
+            RelativeBox8::compress_round_out(child_boxes, &enclosing_box, &mask)
+        })
+        .exactly_one()
+        .unwrap_or_else(|_| unreachable!());
+
         // Compression is lossy, so the bounding box will change.
         // We have to use the decompressed value for the children, same as what is used when
         // traversing the tree
@@ -184,18 +190,9 @@ impl TriangleBvh {
                     .iter()
                     .map(|t: &Triangle<usize>| t.map(|i| vertices[*i].pos.clone())),
             )
-            .map(
-                |(t, mask): (Triangle<WorldPoint8>, <WideF32x8 as SimdValue>::SimdBool)| {
-                    let masked: Triangle<WorldPoint8> = t.map(|p| {
-                        p.coords
-                            .zip_map(&enclosing_box.min.coords, |x, box_min| {
-                                x.select(mask, box_min)
-                            })
-                            .into()
-                    });
-                    RelativeTriangle8::compress(&masked, &enclosing_box)
-                },
-            ),
+            .map(|(t, mask): (Triangle<WorldPoint8>, SimdMaskType)| {
+                RelativeTriangle8::compress(&t, &enclosing_box, &mask)
+            }),
         );
 
         self.triangle_shading_data

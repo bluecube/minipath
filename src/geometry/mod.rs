@@ -11,6 +11,7 @@ pub use triangle::{BarycentricCoordinates, Triangle};
 
 pub type FloatType = f32;
 pub type SimdFloatType = simba::simd::WideF32x8;
+pub type SimdMaskType = simba::simd::WideBoolF32x8;
 
 /// Error tolerance for general purpose calculations in the raytracer.
 /// This is not the same as machine epsilon (FloatType::EPSILON).
