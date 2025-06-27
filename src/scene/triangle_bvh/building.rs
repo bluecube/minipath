@@ -10,6 +10,7 @@ use crate::{
 };
 
 use arrayvec::ArrayVec;
+use assert2::assert;
 use index_vec::IndexVec;
 use indexmap::IndexMap;
 use itertools::Itertools as _;
@@ -126,7 +127,7 @@ impl TriangleBvh {
         vertices: &[VertexData],
         enclosing_box: &WorldBox,
     ) -> CompressedNodeLink {
-        let split_indices = split_triangles(triangles, vertices, enclosing_box);
+        let split_indices = split_triangles(triangles, vertices);
 
         // Create placeholder node that will be overwriten later
         self.inner_nodes.push(InnerNode::default());
@@ -239,10 +240,15 @@ fn vertices_iter<'a>(
 fn split_triangles(
     triangles: &mut [Triangle<usize>],
     vertices: &[VertexData],
-    enclosing_box: &WorldBox,
 ) -> ArrayVec<(Range<usize>, WorldBox), INNER_NODE_CHILDREN> {
+    let centroids_box = AABB::from_points(
+        triangles
+            .iter()
+            .map(|triangle| triangle.map(|i| vertices[*i].pos).centroid()),
+    )
+    .unwrap();
     let bin_count = (triangles.len() / 64).clamp(128, 1024);
-    let bin_grid = BinGrid::with_approximate_bin_count(enclosing_box.clone(), bin_count);
+    let bin_grid = BinGrid::with_approximate_bin_count(centroids_box, bin_count);
 
     let mut bins = Vec::new();
     bins.extend((0..bin_grid.bin_count()).map(|i| SplittingBin {
@@ -264,6 +270,11 @@ fn split_triangles(
         .filter(|bin| bin.count > 0)
         .map(Clone::clone)
         .collect();
+
+    // This is a weak point of this algorithm, technically it could still fail if all centroids
+    // end up in a single bin
+    // TODO: Fix this
+    assert!(groups.len() >= 2);
 
     // We can't merge any more if there's only two groups
     while groups.len() > 2 {
