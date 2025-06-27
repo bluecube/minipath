@@ -1,4 +1,4 @@
-use std::{array, fs, ops::Range, path::Path};
+use std::{array, ops::Range, path::Path};
 
 use crate::{
     geometry::{
@@ -26,44 +26,40 @@ use super::{
 
 impl TriangleBvh {
     pub fn with_obj(p: impl AsRef<Path>) -> Result<TriangleBvh, ObjOpenError> {
-        let content = fs::read_to_string(p)?;
-        let parsed = wavefront_obj::obj::parse(content)?;
+        let parsed = obj::Obj::load(p)?;
 
         let (triangles, vertices) = Self::load_obj(parsed);
 
         Ok(Self::build(triangles, vertices))
     }
 
-    fn load_obj(obj: wavefront_obj::obj::ObjSet) -> (Vec<Triangle<usize>>, Vec<VertexData>) {
+    fn load_obj(obj: obj::Obj) -> (Vec<Triangle<usize>>, Vec<VertexData>) {
         let mut triangles = Vec::new();
         let mut vertices = IndexMap::new();
 
-        for o in obj.objects.into_iter() {
-            for geometry in o.geometry {
-                for shape in geometry.shapes {
-                    let wavefront_obj::obj::Primitive::Triangle(a, b, c) = shape.primitive else {
+        for o in obj.data.objects.into_iter() {
+            for group in o.groups {
+                for polygon in group.polys {
+                    let [a, b, c] = polygon.0.as_slice() else {
                         println!("non-triangle primitive!");
                         continue;
                     };
 
-                    let mut handle_vertex = |vtindex: (usize, Option<usize>, Option<usize>)| {
-                        let entry = vertices.entry(vtindex);
+                    let mut handle_vertex = |vtindex: &obj::IndexTuple| {
+                        let entry = vertices.entry(vtindex.clone());
                         let index = entry.index();
                         entry.or_insert_with(|| {
-                            let vertex = &o.vertices[vtindex.0];
-                            let tex_vertex = vtindex.1.map(|i| &o.tex_vertices[i]);
-                            let normal = vtindex.2.map(|i| &o.normals[i]);
+                            let pos = obj.data.position[vtindex.0];
+                            let tex = vtindex.1.map(|i| obj.data.texture[i]);
+                            let normal = vtindex.2.map(|i| obj.data.normal[i]);
                             VertexData {
-                                pos: WorldPoint::new(
-                                    vertex.x as f32,
-                                    vertex.y as f32,
-                                    vertex.z as f32,
-                                ),
-                                tex: tex_vertex.map_or_else(TexturePoint::origin, |v| {
-                                    TexturePoint::new(v.u as f32, v.v as f32, v.w as f32)
+                                pos: WorldPoint::new(pos[0] as f32, pos[1] as f32, pos[2] as f32),
+                                tex: tex.map_or_else(TexturePoint::origin, |v| {
+                                    TexturePoint::new(v[0] as f32, v[1] as f32, 0.0)
                                 }),
                                 normal: normal.map_or_else(WorldVector::zeros, |v| {
-                                    WorldVector::new(v.x as f32, v.y as f32, v.z as f32).normalize()
+                                    WorldVector::new(v[0] as f32, v[1] as f32, v[2] as f32)
+                                        .normalize()
                                 }),
                             }
                         });
@@ -79,7 +75,9 @@ impl TriangleBvh {
             }
         }
 
-        (triangles, vertices.into_iter().map(|(_k, v)| v).collect())
+        let vertices: Vec<_> = vertices.into_iter().map(|(_k, v)| v).collect();
+
+        (triangles, vertices)
     }
 
     pub fn build(mut triangles: Vec<Triangle<usize>>, vertices: Vec<VertexData>) -> TriangleBvh {
@@ -215,7 +213,7 @@ pub enum ObjOpenError {
     ReadError(#[from] std::io::Error),
 
     #[error("Failed to parse file: {0}")]
-    ParseError(#[from] wavefront_obj::ParseError),
+    ParseError(#[from] obj::ObjError),
 }
 
 /// Per-vertex data of the model.
@@ -358,6 +356,7 @@ impl SplittingBin {
     /// Evaluate surface area heuristic component for a single box.
     /// The value is scaled relative to the parent box.
     fn sah(&self) -> f32 {
+        // self.bounding_box.surface_area() * self.count as f32
         // TODO: Perf: This is just a second stab at what the node traversal cost might look like.
         // It performs better than plain area * self.count, but not by much and behaves weirdly with
         // changes in C_LEAF_PACKET. Investigate more.

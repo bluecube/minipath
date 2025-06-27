@@ -2290,6 +2290,7 @@ dependencies = [
  "nalgebra",
  "num-traits",
  "num_cpus",
+ "obj",
  "ordered-float 5.0.0",
  "proptest",
  "rand 0.9.1",
@@ -2299,7 +2300,6 @@ dependencies = [
  "test-case",
  "test-strategy",
  "thiserror 2.0.12",
- "wavefront_obj",
  "wide",
 ]
 
@@ -2538,6 +2538,12 @@ name = "number_prefix"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
+
+[[package]]
+name = "obj"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "059c95245738cdc7b40078cdd51a23200252a4c0a0a6dd005136152b3f467a4a"
 
 [[package]]
 name = "objc"
@@ -4257,12 +4263,6 @@ checksum = "1a05d73b933a847d6cccdda8f838a22ff101ad9bf93e33684f39c1f5f0eece3d"
 dependencies = [
  "unicode-ident",
 ]
-
-[[package]]
-name = "wavefront_obj"
-version = "11.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "934504ea79927c25f18e980053b64269490284129b327334fc2591daf1539b9c"
 
 [[package]]
 name = "wayland-backend"
