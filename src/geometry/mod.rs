@@ -1,12 +1,10 @@
 mod aabb;
-mod ray_box_intersection;
 mod ray_triangle_intersection;
 mod triangle;
 
 use nalgebra::{Point2, Point3, Unit, Vector2, Vector3};
 
 pub use aabb::{AABB, AABBSized};
-pub use ray_box_intersection::RayIntersectionExt;
 pub use triangle::{BarycentricCoordinates, Triangle};
 
 pub type FloatType = f32;

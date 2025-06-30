@@ -9,8 +9,8 @@ use super::{
 };
 use crate::{
     geometry::{
-        BarycentricCoordinates, FloatType, HitRecord, Ray, RayIntersectionExt as _, SimdFloatType,
-        WorldBox, WorldBoxSized, WorldBoxSized8, WorldVector,
+        BarycentricCoordinates, FloatType, HitRecord, Ray, SimdFloatType, WorldBox, WorldBoxSized,
+        WorldBoxSized8, WorldVector,
     },
     scene::Object,
     util::{
