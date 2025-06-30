@@ -252,7 +252,9 @@ impl AABB<WorldPoint> {
 }
 
 impl AABB<WorldPoint8> {
-    pub fn intersect(&self, ray: &Ray) -> (SimdFloatType, SimdFloatType) {
+    /// Calculates first and last intersection point of a ray with a AABB pack.
+    /// Intersection ray coordinate are clamped to the range [0, max_t]
+    pub fn intersect(&self, ray: &Ray, max_t: SimdFloatType) -> (SimdFloatType, SimdFloatType) {
         let ray_origin = ray.origin.map(SimdFloatType::splat);
         let ray_inv_direction = ray.inv_direction.map(SimdFloatType::splat);
 
@@ -272,11 +274,11 @@ impl AABB<WorldPoint8> {
         let componentwise_max_t = to_box_min.zip_map(&to_box_max, fast_max);
 
         let min_t = fast_max(
-            componentwise_min_t.x,
+            fast_max(componentwise_min_t.x, SimdFloatType::ZERO),
             fast_max(componentwise_min_t.y, componentwise_min_t.z),
         );
         let max_t = fast_min(
-            componentwise_max_t.x,
+            fast_min(componentwise_max_t.x, max_t),
             fast_min(componentwise_max_t.y, componentwise_max_t.z),
         );
 
@@ -366,7 +368,10 @@ pub mod test {
 
     use super::*;
 
-    use crate::geometry::{Ray, WorldBox, WorldBox8, WorldPoint, WorldVector};
+    use crate::{
+        geometry::{Ray, WorldBox, WorldBox8, WorldPoint, WorldVector},
+        util::simba::SimbaWorkarounds,
+    };
 
     /// Checks cases when the ray hits the box, including some corner cases.
     #[test_matrix(
@@ -376,7 +381,7 @@ pub mod test {
         [-1.0, 0.0, 2.0],
         [-1.0, 0.0, 2.0],
         [-1.0, 0.0, 2.0],
-        [-10.0, -1.0, 0.0, 2.0, 5.0, 20.0]
+        [0.0, 2.0, 5.0, 20.0]
     )]
     fn hit(px: f32, py: f32, pz: f32, dx: f32, dy: f32, dz: f32, origin_pos: f32) {
         if dx == 0.0 && dy == 0.0 && dz == 0.0 {
@@ -389,18 +394,22 @@ pub mod test {
         let p = WorldPoint::new(px, py, pz);
         let d = WorldVector::new(dx, dy, dz);
         let temp_r = Ray::new(p, d);
-        let origin = temp_r.point_at(origin_pos);
+        let origin = temp_r.point_at(-origin_pos);
         let r = Ray::new(origin, d);
 
-        let result = simd_result_to_scalar(b_simd.intersect(&r));
-
+        let result = simd_result_to_scalar(b_simd.intersect(&r, SimdFloatType::infinity()));
+        dbg!(result);
         let (t1, t2) =
             result.expect("The ray origin is in/on the box, we should always have an intersection");
 
         let p1 = r.point_at(t1);
-        let p2 = r.point_at(t2);
+        if t1 > 0.0 {
+            assert!(point_is_on_box_surface(&p1, &b), "{p1:?} must be in {b:?}");
+        } else {
+            assert!(point_is_inside_box(&p1, &b), "{p1:?} must be in {b:?}");
+        }
 
-        assert!(point_is_on_box_surface(&p1, &b), "{p1:?} must be in {b:?}");
+        let p2 = r.point_at(t2);
         assert!(point_is_on_box_surface(&p2, &b), "{p2:?} must be in {b:?}");
     }
 
@@ -434,7 +443,7 @@ pub mod test {
             WorldVector::new(0.0, 0.0, 1.0),
         );
 
-        let result = simd_result_to_scalar(b_simd.intersect(&r));
+        let result = simd_result_to_scalar(b_simd.intersect(&r, SimdFloatType::infinity()));
 
         assert!(result == Some((5.0, 10.0)))
     }
@@ -459,20 +468,16 @@ pub mod test {
         let origin = temp_r.point_at(origin_pos);
         let r = Ray::new(origin, d);
 
-        let result = simd_result_to_scalar(b_simd.intersect(&r));
+        let result = simd_result_to_scalar(b_simd.intersect(&r, SimdFloatType::infinity()));
 
         assert!(result == None);
     }
+
     fn point_is_on_box_surface(p: &WorldPoint, b: &WorldBox) -> bool {
         const TOLERANCE: f32 = 1e-3;
 
-        // Check if point is within the box's bounds (inclusive, with tolerance)
-        let inside_x = p.x >= b.min.x - TOLERANCE && p.x <= b.max.x + TOLERANCE;
-        let inside_y = p.y >= b.min.y - TOLERANCE && p.y <= b.max.y + TOLERANCE;
-        let inside_z = p.z >= b.min.z - TOLERANCE && p.z <= b.max.z + TOLERANCE;
-
-        if !(inside_x && inside_y && inside_z) {
-            return false; // outside the box entirely
+        if !point_is_inside_box(p, b) {
+            return false;
         }
 
         // Check if the point lies on any of the six faces (within tolerance)
@@ -489,5 +494,16 @@ pub mod test {
             && (p.y >= b.min.y - TOLERANCE && p.y <= b.max.y + TOLERANCE);
 
         on_x_face || on_y_face || on_z_face
+    }
+
+    fn point_is_inside_box(p: &WorldPoint, b: &WorldBox) -> bool {
+        const TOLERANCE: f32 = 1e-3;
+
+        // Check if point is within the box's bounds (inclusive, with tolerance)
+        let inside_x = p.x >= b.min.x - TOLERANCE && p.x <= b.max.x + TOLERANCE;
+        let inside_y = p.y >= b.min.y - TOLERANCE && p.y <= b.max.y + TOLERANCE;
+        let inside_z = p.z >= b.min.z - TOLERANCE && p.z <= b.max.z + TOLERANCE;
+
+        inside_x && inside_y && inside_z
     }
 }

@@ -13,10 +13,7 @@ use crate::{
         WorldBoxSized8, WorldVector,
     },
     scene::Object,
-    util::{
-        bit_iter,
-        simba::{fast_max, fast_min},
-    },
+    util::bit_iter,
 };
 
 #[derive(Clone, Default)]
@@ -158,9 +155,7 @@ impl InnerNode {
         max_t: f32,
     ) -> impl Iterator<Item = (CompressedNodeLink, WorldBoxSized, FloatType)> {
         let boxes = self.child_bounds.decompress(enclosing_box);
-        let (t1, t2) = boxes.intersect(ray);
-        let t1 = fast_max(t1, SimdFloatType::ZERO);
-        let t2 = fast_min(t2, SimdFloatType::splat(max_t));
+        let (t1, t2) = boxes.intersect(ray, SimdFloatType::splat(max_t));
         let boxes: WorldBoxSized8 = (&boxes).into();
         let mask = t1.simd_le(t2).0.move_mask() as u64;
 
