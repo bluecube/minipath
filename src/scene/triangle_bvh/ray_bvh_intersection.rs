@@ -49,11 +49,9 @@ impl Object for TriangleBvh {
                 super::NodeLink::Null => continue,
                 super::NodeLink::Inner { index } => {
                     let node = &self.inner_nodes[index];
-                    for (link, bb, t1) in node.intersect(ray, &enclosing_box, best.t) {
-                        // TODO: Perf: Sort based on t1 before inserting, lower t1 should be added last
-                        // (= first to be popped, because it has the best chance of decreasing nearest_t)
-                        stack.stack.push((link, bb, t1));
-                    }
+                    stack
+                        .stack
+                        .extend(node.intersect(ray, &enclosing_box, best.t));
                 }
                 super::NodeLink::Leaf { indices } => {
                     let hit = self.intersect_triangles(indices, ray, &enclosing_box, best.t);
