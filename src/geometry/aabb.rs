@@ -259,9 +259,6 @@ impl AABB<WorldPoint8> {
         let ray_inv_direction = ray.inv_direction.map(SimdFloatType::splat);
 
         // Componentwise distances along the ray to the box's min and max corners
-        // TODO: Perf: Try storing pre-multiplied ray origin in the ray, use FMA (mul_add)
-        // The multiplication is NAN if the ray is starting inside the slab bounding plane
-        // and is parallel to it. In this case we blend to +-infinity, so that the range becomes infinite
         let to_box_min = (self.min - ray_origin)
             .component_mul(&ray_inv_direction)
             .map(|x| SimdFloatType::neg_infinity().select(x.is_nan(), x));
