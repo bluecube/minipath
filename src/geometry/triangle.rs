@@ -5,7 +5,14 @@ use nalgebra::{
     OPoint, OVector, Scalar, allocator::Allocator,
 };
 use num_traits::{One, Zero};
-use simba::{scalar::ClosedAdd, simd::SimdValue};
+use simba::{
+    scalar::ClosedAdd,
+    simd::{SimdPartialOrd as _, SimdValue},
+};
+
+use crate::util::simba::{fma_cross, fma_dot};
+
+use super::{Ray, SimdFloatType, SimdMaskType, WorldPoint8};
 
 #[derive(Clone, Debug)]
 pub struct Triangle<Point>([Point; 3]);
@@ -170,6 +177,42 @@ where
 
     fn select(self, cond: Self::SimdBool, other: Self) -> Self {
         self.zip_map_coords(&other, |x, y| x.select(cond, y.clone()))
+    }
+}
+
+impl Triangle<WorldPoint8> {
+    /// Calculates ray intersection with the (two sided) triangle pack.
+    /// Returns mask of valid intersections, distance along ray, and barycentric uv coordinates.
+    /// Adapted from https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm#Rust_implementation
+    pub fn intersect(
+        &self,
+        ray: &Ray,
+    ) -> (
+        SimdMaskType,
+        SimdFloatType,
+        BarycentricCoordinates<SimdFloatType>,
+    ) {
+        let origin = ray.origin.map(SimdFloatType::splat);
+        let direction = ray.direction.map(SimdFloatType::splat);
+
+        let e1 = self[1] - self[0];
+        let e2 = self[2] - self[0];
+
+        let ray_cross_e2 = fma_cross(&direction, &e2);
+        let det = fma_dot(&e1, &ray_cross_e2);
+
+        let inv_det = SimdFloatType::ONE / det; // May be infinite
+        let s = origin - self[0];
+        let u = inv_det * fma_dot(&s, &ray_cross_e2);
+
+        let s_cross_e1 = fma_cross(&s, &e1);
+        let v = inv_det * fma_dot(&direction, &s_cross_e1);
+        let t = inv_det * fma_dot(&e2, &s_cross_e1);
+
+        let mask = u.simd_ge(SimdFloatType::ZERO)
+            & v.simd_ge(SimdFloatType::ZERO)
+            & (u + v).simd_le(SimdFloatType::ONE);
+        (mask, t, BarycentricCoordinates { u, v })
     }
 }
 

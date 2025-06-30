@@ -1,5 +1,4 @@
 mod aabb;
-mod ray_triangle_intersection;
 mod triangle;
 
 use nalgebra::{Point2, Point3, Unit, Vector2, Vector3};
