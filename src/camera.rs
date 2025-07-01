@@ -7,7 +7,7 @@ use crate::geometry::{FloatType, Ray, ScreenPoint, ScreenSize, WorldPoint, World
 /// Represents camera looking at the scene
 #[derive(Copy, Clone, Debug)]
 pub struct Camera {
-    pub world_to_camera: Isometry3<FloatType>,
+    pub camera_to_world: Isometry3<FloatType>,
 
     pub focus_distance: FloatType,
 
@@ -42,7 +42,7 @@ pub struct CameraSampler {
 impl Default for Camera {
     fn default() -> Self {
         Camera {
-            world_to_camera: Default::default(),
+            camera_to_world: Default::default(),
             focus_distance: FloatType::INFINITY,
             sensor_size: SensorSize::Height(24e-3),
             focal_length: 50e-3,
@@ -53,9 +53,9 @@ impl Default for Camera {
 
 impl Camera {
     /// Creates a new camera that replaces its transform with the argument
-    pub fn with_transform(&self, transform: Isometry3<FloatType>) -> Camera {
+    pub fn with_transform(&self, camera_to_world: Isometry3<FloatType>) -> Camera {
         Camera {
-            world_to_camera: transform,
+            camera_to_world,
             ..*self
         }
     }
@@ -94,7 +94,7 @@ impl Camera {
         let transform = Isometry3::look_at_rh(&center, &look_at, &up);
 
         Camera {
-            world_to_camera: transform,
+            camera_to_world: transform.inverse(),
             focus_distance: (look_at - center).norm(),
             ..*self
         }
@@ -110,17 +110,18 @@ impl Camera {
         let transform = Isometry3::look_at_rh(&center, &(center + forward), &up);
 
         Camera {
-            world_to_camera: transform,
+            camera_to_world: transform.inverse(),
             ..*self
         }
     }
 
+    /// Creates a new camera that applies the given transform relative to the previous camera frame
+    pub fn transformed(&self, transform: Isometry3<FloatType>) -> Camera {
+        self.with_transform(transform * self.camera_to_world)
+    }
+
     pub fn build_sampler(&self, resolution: ScreenSize) -> CameraSampler {
-        let t = self.world_to_camera.inverse();
-        let center = t * WorldPoint::origin();
-        let forward = Unit::new_unchecked(t * WorldVector::new(0.0, 0.0, -1.0));
-        let up = Unit::new_unchecked(t * WorldVector::new(0.0, 1.0, 0.0));
-        let right = Unit::new_unchecked(t * WorldVector::new(1.0, 0.0, 0.0));
+        let (center, forward, up, right) = self.center_forward_up_right();
 
         let resolution = resolution.cast::<FloatType>();
         let pixel_scale = match self.sensor_size {
@@ -142,6 +143,31 @@ impl Camera {
             lens_radius: self.focal_length / (2.0 * self.f_number),
             lens_weight: self.focal_length / self.focus_distance,
         }
+    }
+
+    pub fn center_forward_up_right(
+        &self,
+    ) -> (
+        WorldPoint,
+        Unit<WorldVector>,
+        Unit<WorldVector>,
+        Unit<WorldVector>,
+    ) {
+        let center = self.camera_to_world.transform_point(&WorldPoint::origin());
+        let forward = Unit::new_unchecked(
+            self.camera_to_world
+                .transform_vector(&WorldVector::new(0.0, 0.0, -1.0)),
+        );
+        let up = Unit::new_unchecked(
+            self.camera_to_world
+                .transform_vector(&WorldVector::new(0.0, 1.0, 0.0)),
+        );
+        let right = Unit::new_unchecked(
+            self.camera_to_world
+                .transform_vector(&WorldVector::new(1.0, 0.0, 0.0)),
+        );
+
+        (center, forward, up, right)
     }
 }
 
@@ -169,6 +195,7 @@ impl CameraSampler {
 mod test {
     use super::*;
     use assert2::assert;
+    use nalgebra::{Point3, Translation3};
 
     #[test]
     fn left_right_up_down() {
@@ -196,5 +223,26 @@ mod test {
         assert!(ray_right.direction.x > ray_center.direction.x);
         assert!(ray_up.direction.z > ray_center.direction.z);
         assert!(ray_down.direction.z < ray_center.direction.z);
+    }
+
+    #[test]
+    fn relative_translation() {
+        let camera = Camera::default()
+            .look_direction(
+                WorldPoint::new(0.0, 0.0, 0.0),
+                WorldVector::new(0.0, 1.0, 0.0), /* forward */
+                WorldVector::new(0.0, 0.0, 1.0), /* up */
+            )
+            .focus_distance(2.0);
+        dbg!(camera.center_forward_up_right());
+
+        let camera_translated = camera.transformed(Translation3::new(1.0, 2.0, 3.0).into());
+
+        let (center, _, _, _) = camera_translated.center_forward_up_right();
+        assert!(
+            (center - Point3::new(1.0, 2.0, 3.0)).norm() < 1e-6,
+            "{:?}",
+            center
+        );
     }
 }
