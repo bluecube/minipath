@@ -23,7 +23,7 @@ pub struct MinipathGui<O: Object> {
 
 impl<O: Object + Send + Sync + 'static> MinipathGui<O> {
     pub fn new(
-        scene: Scene<O>,
+        scene: Arc<Scene<O>>,
         camera: Camera,
         render_settings: RenderSettings,
         cc: &CreationContext<'_>,
@@ -130,9 +130,9 @@ fn main() -> anyhow::Result<()> {
                 tile_size: 64.try_into().unwrap(),
                 sample_count: 2.try_into().unwrap(),
             };
-            let scene = Scene {
+            let scene = Arc::new(Scene {
                 object: TriangleBvh::with_obj("data/teapot.obj").unwrap(),
-            };
+            });
             scene.object.print_statistics();
 
             Ok(Box::new(MinipathGui::new(scene, camera, settings, cc)?))

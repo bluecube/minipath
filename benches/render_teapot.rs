@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use minipath::{
@@ -23,9 +23,9 @@ fn criterion_benchmark(c: &mut Criterion) {
         tile_size: 64.try_into().unwrap(),
         sample_count: 10.try_into().unwrap(),
     };
-    let scene = Scene {
+    let scene = Arc::new(Scene {
         object: TriangleBvh::with_obj("data/teapot.obj").unwrap(),
-    };
+    });
 
     c.bench_function("render_teapot", |b| {
         b.iter_batched(

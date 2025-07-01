@@ -22,7 +22,7 @@ pub fn render<
     F1: Fn(ScreenBlock) + Send + Sync + 'static,
     F2: Fn(ScreenBlock, RenderProgressSnapshot) + Send + Sync + 'static,
 >(
-    scene: Scene<O>,
+    scene: Arc<Scene<O>>,
     camera: Camera,
     settings: RenderSettings,
     started_tile_callback: F1,
@@ -195,7 +195,7 @@ impl RenderProgressSnapshot {
 }
 
 struct RenderState<O: Object> {
-    scene: Scene<O>,
+    scene: Arc<Scene<O>>,
     camera: Camera,
     settings: RenderSettings,
 

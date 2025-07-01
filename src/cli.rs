@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use minipath::{
     Camera, RenderSettings, Scene,
     geometry::{ScreenSize, WorldPoint, WorldVector},
@@ -23,9 +25,9 @@ fn main() -> anyhow::Result<()> {
         tile_size: 64.try_into().unwrap(),
         sample_count: 100.try_into().unwrap(),
     };
-    let scene = Scene {
+    let scene = Arc::new(Scene {
         object: TriangleBvh::with_obj("data/teapot.obj").unwrap(),
-    };
+    });
     scene.object.print_statistics();
 
     let bar = ProgressBar::no_length();
