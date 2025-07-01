@@ -5,7 +5,7 @@ use rand::{SeedableRng, rngs::SmallRng};
 
 use crate::scene::triangle_bvh;
 use crate::{
-    camera::Camera,
+    camera::CameraSampler,
     geometry::{ScreenBlock, ScreenPoint},
     renderer::RenderSettings,
     scene::{Object, Scene},
@@ -15,14 +15,16 @@ use crate::{
 pub struct Worker<O: Object> {
     rng: SmallRng,
     bvh_stack_cache: triangle_bvh::StackCache,
+    camera_sampler: CameraSampler,
     _phantom: PhantomData<O>,
 }
 
 impl<O: Object + Sync> Worker<O> {
-    pub fn new(_worker_id: usize) -> Self {
+    pub fn new(_worker_id: usize, camera_sampler: CameraSampler) -> Self {
         Self {
             rng: SmallRng::from_os_rng(),
             bvh_stack_cache: Default::default(),
+            camera_sampler,
             _phantom: Default::default(),
         }
     }
@@ -30,7 +32,6 @@ impl<O: Object + Sync> Worker<O> {
     pub fn render_tile(
         &mut self,
         scene: &Scene<O>,
-        camera: &Camera,
         settings: &RenderSettings,
         tile: &ScreenBlock,
         buffer: &mut RgbaImage,
@@ -38,7 +39,7 @@ impl<O: Object + Sync> Worker<O> {
         for point in tile.internal_points() {
             let mut pixel_sum = Rgba::new(0.0, 0.0, 0.0, 0.0);
             for _i in 0..settings.sample_count.get() {
-                pixel_sum += self.render_sample(scene, camera, settings, &point);
+                pixel_sum += self.render_sample(scene, settings, &point);
             }
             let pixel = pixel_sum * (1.0 / settings.sample_count.get() as f32);
 
@@ -50,11 +51,10 @@ impl<O: Object + Sync> Worker<O> {
     fn render_sample(
         &mut self,
         scene: &Scene<O>,
-        camera: &Camera,
         _settings: &RenderSettings,
         point: &ScreenPoint,
     ) -> Rgba {
-        let ray = camera.sample_ray(point, &mut self.rng);
+        let ray = self.camera_sampler.sample_ray(point, &mut self.rng);
 
         if let Some(intersection) = scene.object.intersect(&ray, &mut self.bvh_stack_cache) {
             let dot = ray.direction.dot(&intersection.normal).abs();

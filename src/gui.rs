@@ -46,10 +46,11 @@ impl<O: Object + Send + Sync + 'static> MinipathGui<O> {
                 ctx.request_repaint();
             }
         };
-        let screen_block = ScreenBlock::with_size(ScreenPoint::origin(), &camera.get_resolution());
+        let screen_block =
+            ScreenBlock::with_size(ScreenPoint::origin(), &render_settings.resolution);
         let render_progress = render(
             scene,
-            camera,
+            camera.clone(),
             render_settings,
             tile_started_callback,
             tile_finished_callback,
@@ -115,20 +116,19 @@ fn main() -> anyhow::Result<()> {
         "Minipath GUI",
         Default::default(),
         Box::new(|cc| {
-            let camera = Camera::builder()
-                .center(WorldPoint::new(0.0, 2.0, 10.0))
-                .forward(WorldVector::new(0.0, 0.0, -1.0))
-                .up(WorldVector::new(0.0, 1.0, 0.0))
-                .resolution(ScreenSize::new(2048, 1536))
-                .film_width(36e-3)
-                .focal_length(50e-3)
+            let camera = Camera::default()
+                .look_at(
+                    WorldPoint::new(0.0, 2.0, 10.0),
+                    WorldPoint::new(0.0, 1.5, 0.0),
+                    WorldVector::new(0.0, 1.0, 0.0),
+                )
                 .f_number(4.8)
-                .focus_distance(10.0)
-                .build();
+                .focus_distance(10.0);
 
             let settings = RenderSettings {
                 tile_size: 64.try_into().unwrap(),
                 sample_count: 2.try_into().unwrap(),
+                resolution: ScreenSize::new(2048, 1536),
             };
             let scene = Arc::new(Scene {
                 object: TriangleBvh::with_obj("data/teapot.obj").unwrap(),

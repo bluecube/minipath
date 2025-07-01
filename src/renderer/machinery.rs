@@ -31,7 +31,7 @@ pub fn render<
     let cores = core_affinity::get_core_ids().expect("We need a CPU list!");
     let worker_count = cores.len();
 
-    let image = RgbaImage::new(camera.get_resolution().x, camera.get_resolution().y);
+    let image = RgbaImage::new(settings.resolution.x, settings.resolution.y);
     let state = Arc::new(RenderState {
         scene,
         camera,
@@ -39,7 +39,7 @@ pub fn render<
 
         image: Mutex::new(image),
 
-        tile_ordering: ScreenBlock::with_size(ScreenPoint::origin(), &camera.get_resolution())
+        tile_ordering: ScreenBlock::with_size(ScreenPoint::origin(), &settings.resolution)
             .tile_ordering(settings.tile_size),
         next_tile_index: AtomicUsize::new(0),
 
@@ -62,7 +62,8 @@ pub fn render<
                 .spawn(move || {
                     core_affinity::set_for_current(core);
 
-                    let mut worker = Worker::<O>::new(worker_id);
+                    let mut worker =
+                        Worker::<O>::new(worker_id, camera.build_sampler(settings.resolution));
                     let mut buffer =
                         RgbaImage::new(settings.tile_size.into(), settings.tile_size.into());
                     let tile_count = state.tile_ordering.len();
@@ -74,13 +75,7 @@ pub fn render<
                     loop {
                         (started_tile_callback)(tile.clone());
 
-                        worker.render_tile(
-                            &state.scene,
-                            &state.camera,
-                            &state.settings,
-                            tile,
-                            &mut buffer,
-                        );
+                        worker.render_tile(&state.scene, &state.settings, tile, &mut buffer);
                         state
                             .image
                             .lock()

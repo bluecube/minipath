@@ -41,7 +41,6 @@ itertools = "0.14.0"
 thiserror = "2.0.12"
 indexmap = "2.9.0"
 index_vec = "0.1.4"
-bon = "3.6.4"
 arrayvec = "0.7.6"
 
 # GUI only:

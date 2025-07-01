@@ -1,89 +1,159 @@
 use assert2::assert;
-use bon::bon;
-use nalgebra::Unit;
+use nalgebra::{Isometry3, Unit};
 use rand_distr::Distribution as _;
 
-use crate::geometry::{EPSILON, FloatType, Ray, ScreenPoint, ScreenSize, WorldPoint, WorldVector};
+use crate::geometry::{FloatType, Ray, ScreenPoint, ScreenSize, WorldPoint, WorldVector};
 
+/// Represents camera looking at the scene
 #[derive(Copy, Clone, Debug)]
 pub struct Camera {
-    center: WorldPoint,
+    pub world_to_camera: Isometry3<FloatType>,
 
-    resolution: ScreenSize,
+    pub focus_distance: FloatType,
+
+    pub sensor_size: SensorSize,
+    pub focal_length: FloatType,
+    pub f_number: FloatType,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum SensorSize {
+    Width(FloatType),
+    Height(FloatType),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct CameraSampler {
+    center: WorldPoint,
 
     up: Unit<WorldVector>,
     right: Unit<WorldVector>,
     film_origin_offset: WorldVector,
 
     /// Distance between pixels in meters
-    pixel_pitch: FloatType,
+    pixel_scale: FloatType,
 
     /// Lens radius in meters
     lens_radius: FloatType,
     lens_weight: FloatType,
 }
 
-#[bon]
-impl Camera {
-    #[builder]
-    pub fn new(
-        center: WorldPoint,
-        forward: WorldVector,
-        up: WorldVector,
-        resolution: ScreenSize,
-        film_width: FloatType,
-        focal_length: FloatType,
-        f_number: f32,
-        focus_distance: FloatType,
-    ) -> Self {
-        let forward = Unit::try_new(forward, EPSILON).expect("Forward vector must be non-zero");
-        let up = Unit::try_new(up, EPSILON).expect("Up vector must be no-zero");
-        let right = Unit::try_new(forward.cross(&up), EPSILON)
-            .expect("`up` and `forward` must be linearly independent");
-        let up = Unit::new_normalize(right.cross(&forward));
-
-        assert!(resolution.x > 0);
-        assert!(resolution.y > 0);
-        assert!(film_width > 0.0);
-        assert!(focal_length > 0.0);
-        assert!(f_number > 0.0);
-        assert!(focus_distance > 0.0);
-
-        let pixel_scale = film_width / (resolution.x as f32);
-        let resolution_minus_one = ScreenSize::new(resolution.x - 1, resolution.y - 1);
-        let film_origin_uv = resolution_minus_one.cast::<FloatType>() * pixel_scale / 2.0;
-        let film_origin_offset = -forward.as_ref() * focal_length
-            + right.as_ref() * film_origin_uv.x
-            - up.as_ref() * film_origin_uv.y;
-
+/// Default camera is a 35mm camera with 50mm f/9 lens, looks along Z, focuses at infinity.
+impl Default for Camera {
+    fn default() -> Self {
         Camera {
-            center,
-
-            resolution,
-
-            up,
-            right,
-            film_origin_offset,
-            pixel_pitch: pixel_scale,
-            lens_radius: focal_length / (2.0 * f_number),
-            lens_weight: focal_length / focus_distance,
+            world_to_camera: Default::default(),
+            focus_distance: FloatType::INFINITY,
+            sensor_size: SensorSize::Height(24e-3),
+            focal_length: 50e-3,
+            f_number: 9.0,
         }
     }
 }
 
 impl Camera {
-    pub fn get_resolution(&self) -> ScreenSize {
-        self.resolution
+    /// Creates a new camera that replaces its transform with the argument
+    pub fn with_transform(&self, transform: Isometry3<FloatType>) -> Camera {
+        Camera {
+            world_to_camera: transform,
+            ..*self
+        }
     }
 
+    pub fn focus_distance(&self, focus_distance: FloatType) -> Camera {
+        assert!(focus_distance >= 0.0);
+        Camera {
+            focus_distance,
+            ..*self
+        }
+    }
+
+    pub fn sensor_width(&self, sensor_width: FloatType) -> Camera {
+        assert!(sensor_width > 0.0);
+        Camera {
+            sensor_size: SensorSize::Width(sensor_width),
+            ..*self
+        }
+    }
+
+    pub fn sensor_height(&self, sensor_height: FloatType) -> Camera {
+        assert!(sensor_height > 0.0);
+        Camera {
+            sensor_size: SensorSize::Height(sensor_height),
+            ..*self
+        }
+    }
+
+    pub fn f_number(&self, f_number: FloatType) -> Camera {
+        assert!(f_number > 0.0);
+        Camera { f_number, ..*self }
+    }
+
+    /// Creates a new camera that looks from `center` to `look_at` and also focuses at `look_at`
+    pub fn look_at(&self, center: WorldPoint, look_at: WorldPoint, up: WorldVector) -> Camera {
+        let transform = Isometry3::look_at_rh(&center, &look_at, &up);
+
+        Camera {
+            world_to_camera: transform,
+            focus_distance: (look_at - center).norm(),
+            ..*self
+        }
+    }
+
+    /// Creates a new camera that looks from `center` looking `forward`.
+    pub fn look_direction(
+        &self,
+        center: WorldPoint,
+        forward: WorldVector,
+        up: WorldVector,
+    ) -> Camera {
+        let transform = Isometry3::look_at_rh(&center, &(center + forward), &up);
+
+        Camera {
+            world_to_camera: transform,
+            ..*self
+        }
+    }
+
+    pub fn build_sampler(&self, resolution: ScreenSize) -> CameraSampler {
+        let t = self.world_to_camera.inverse();
+        let center = t * WorldPoint::origin();
+        let forward = Unit::new_unchecked(t * WorldVector::new(0.0, 0.0, -1.0));
+        let up = Unit::new_unchecked(t * WorldVector::new(0.0, 1.0, 0.0));
+        let right = Unit::new_unchecked(t * WorldVector::new(1.0, 0.0, 0.0));
+
+        let resolution = resolution.cast::<FloatType>();
+        let pixel_scale = match self.sensor_size {
+            SensorSize::Width(w) => w / resolution.x,
+            SensorSize::Height(h) => h / resolution.y,
+        };
+
+        let film_origin_uv = (resolution.map(|x| x - 1.0) * pixel_scale) / 2.0;
+        let film_origin_offset = -forward.as_ref() * self.focal_length
+            + right.as_ref() * film_origin_uv.x
+            - up.as_ref() * film_origin_uv.y;
+
+        CameraSampler {
+            center,
+            up,
+            right,
+            film_origin_offset,
+            pixel_scale,
+            lens_radius: self.focal_length / (2.0 * self.f_number),
+            lens_weight: self.focal_length / self.focus_distance,
+        }
+    }
+}
+
+impl CameraSampler {
     /// Samples a new ray from the camera for the given image pixel.
     pub fn sample_ray(&self, point: &ScreenPoint, rng: &mut impl rand::Rng) -> Ray {
         //TODO: Figure out a better reconstruction kernel for the pixel than a square
         let film_u = point.x as f32 + rng.random_range(-0.5..=0.5);
         let film_v = point.y as f32 + rng.random_range(-0.5..=0.5);
         let film_point_offset = self.film_origin_offset
-            + self.up.as_ref() * (film_v * self.pixel_pitch)
-            - self.right.as_ref() * (film_u * self.pixel_pitch);
+            + self.up.as_ref() * (film_v * self.pixel_scale)
+            - self.right.as_ref() * (film_u * self.pixel_scale);
 
         let lens_uv: [f32; 2] = rand_distr::UnitDisc.sample(rng);
         let lens_vector = self.right.as_ref() * (self.lens_radius * lens_uv[0])
@@ -103,16 +173,15 @@ mod test {
     #[test]
     fn left_right_up_down() {
         // X goes right, Y goes away, Z goes up
-        let camera = Camera::builder()
-            .center(WorldPoint::new(0.0, 0.0, 0.0))
-            .forward(WorldVector::new(0.0, 1.0, 0.0))
-            .up(WorldVector::new(0.0, 0.0, 1.0))
-            .resolution(ScreenSize::new(800, 600))
-            .film_width(36e-3)
-            .focal_length(50e-3)
-            .f_number(f32::INFINITY)
+        let camera = Camera::default()
+            .look_direction(
+                WorldPoint::new(0.0, 0.0, 0.0),
+                WorldVector::new(0.0, 1.0, 0.0), /* forward */
+                WorldVector::new(0.0, 0.0, 1.0), /* up */
+            )
             .focus_distance(2.0)
-            .build();
+            .build_sampler(ScreenSize::new(800, 600));
+
         let mut rng = rand::rng();
 
         let ray_center = camera.sample_ray(&ScreenPoint::new(400, 300), &mut rng);
