@@ -34,7 +34,6 @@ pub fn render<
     let image = RgbaImage::new(settings.resolution.x, settings.resolution.y);
     let state = Arc::new(RenderState {
         scene,
-        camera,
         settings,
 
         image: Mutex::new(image),
@@ -191,7 +190,6 @@ impl RenderProgressSnapshot {
 
 struct RenderState<O: Object> {
     scene: Arc<Scene<O>>,
-    camera: Camera,
     settings: RenderSettings,
 
     image: Mutex<RgbaImage>,
